@@ -11,12 +11,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Create GitHub release
+      - name: release
+        uses: actions/create-release@v1
+        id: create_release
+        with:
+          draft: false
+          prerelease: false
+          release_name: ${{ steps.version.outputs.version }}
+          tag_name: ${{ github.ref }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG=$(git describe --tags --abbrev=0)
-          gh release create $TAG --draft --title $TAG
+          GITHUB_TOKEN: ${{ github.token }}
 
   Build_release:
     needs: Pre_release
@@ -41,12 +45,16 @@ jobs:
       - name: Build release
         run: mvn clean package -DskipTests -T 3
 
+      - name: Rename artifacts for MacOS
+        if: ${{ runner.os == 'macOS' }}
+        run: mv cli/target/zdb cli/target/zdb.darwin
+
       - name: Upload artifacts for MacOS
-        uses: actions/upload-artifact@v3
+        uses: softprops/action-gh-release@v1
         if: ${{startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS' }}
         with:
-          name: zdb_mac
-          path: cli/target/zdb
+          draft: false
+          files: cli/target/zdb.darwin
 
 #      - name: Upload artifacts for Windows
 #        uses: actions/upload-artifact@v3
@@ -55,9 +63,13 @@ jobs:
 #          draft: zdb_linux
 #          path: cli/target/zdb
 
+      - name: Rename artifacts for Linux
+        if: ${{ runner.os == 'Linux' }}
+        run: mv cli/target/zdb cli/target/zdb
+
       - name: Upload artifacts for Linux
-        uses: actions/upload-artifact@v3
+        uses: softprops/action-gh-release@v1
         if: ${{startsWith(github.ref, 'refs/tags/') && runner.os == 'Linux' }}
         with:
           draft: false
-          path: cli/target/zdb
+          files: cli/target/zdb
