@@ -63,10 +63,6 @@ jobs:
 #          draft: zdb_linux
 #          path: cli/target/zdb
 
-      - name: Rename artifacts for Linux
-        if: ${{ runner.os == 'Linux' }}
-        run: mv cli/target/zdb cli/target/zdb
-
       - name: Upload artifacts for Linux
         uses: softprops/action-gh-release@v1
         if: ${{startsWith(github.ref, 'refs/tags/') && runner.os == 'Linux' }}
