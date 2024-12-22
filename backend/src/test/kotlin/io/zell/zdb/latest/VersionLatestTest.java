@@ -135,7 +135,7 @@ public class VersionLatestTest {
       // then
       assertThat(status.getHighestIndex()).isEqualTo(215);
       assertThat(status.getHighestTerm()).isEqualTo(1);
-      assertThat(status.getHighestRecordPosition()).isEqualTo(263);
+      assertThat(status.getHighestRecordPosition()).isEqualTo(281);
       assertThat(status.getLowestIndex()).isEqualTo(1);
       assertThat(status.getLowestRecordPosition()).isEqualTo(1);
 
@@ -192,7 +192,7 @@ public class VersionLatestTest {
       // then
       assertThat(status.getHighestIndex()).isEqualTo(17);
       assertThat(status.getHighestTerm()).isEqualTo(1);
-      assertThat(status.getHighestRecordPosition()).isEqualTo(65);
+      assertThat(status.getHighestRecordPosition()).isEqualTo(83);
       assertThat(status.getLowestIndex()).isEqualTo(1);
       assertThat(status.getLowestRecordPosition()).isEqualTo(1);
 
@@ -278,7 +278,7 @@ public class VersionLatestTest {
       final var expectedJson =
           OBJECT_MAPPER.readTree(
               """
-                    {"position":65,"sourceRecordPosition":64,"key":-1,"recordType":"COMMAND_REJECTION",
+                    {"position":83,"sourceRecordPosition":82,"key":-1,"recordType":"COMMAND_REJECTION",
                     "valueType":"PROCESS_INSTANCE_CREATION","intent":"CREATE","rejectionType":"NOT_FOUND",
                     "rejectionReason":"Expected to find process definition with process ID 'nonExisting', but none found",
                     "requestId":-1,"requestStreamId":-2147483648,"protocolVersion":5,"brokerVersion":"8.7.0",
@@ -322,13 +322,13 @@ public class VersionLatestTest {
       final var expectedJson =
           OBJECT_MAPPER.readTree(
               """
-                    {"position":13,"sourceRecordPosition":7,"key":2251799813685253,"recordType":"EVENT",
+                    {"position":31,"sourceRecordPosition":25,"key":2251799813685256,"recordType":"EVENT",
                     "valueType":"PROCESS_INSTANCE","intent":"ELEMENT_ACTIVATING","requestId":-1,
                     "requestStreamId":-2147483648,"protocolVersion":5,"brokerVersion":"8.7.0","recordVersion":1,
                     "recordValue":{"bpmnElementType":"PROCESS","elementId":"process","bpmnProcessId":"process",
-                    "version":1,"processDefinitionKey":2251799813685251,"processInstanceKey":2251799813685253,
+                    "version":1,"processDefinitionKey":2251799813685254,"processInstanceKey":2251799813685256,
                     "flowScopeKey":-1,"bpmnEventType":"UNSPECIFIED","parentProcessInstanceKey":-1,
-                    "parentElementInstanceKey":-1,"tenantId":"<default>","elementInstancePath":[[2251799813685253]],"processDefinitionPath":[2251799813685251],"callingElementPath":[]}}
+                    "parentElementInstanceKey":-1,"tenantId":"<default>","elementInstancePath":[[2251799813685256]],"processDefinitionPath":[2251799813685254],"callingElementPath":[]}}
 """);
       final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
       final var logContentReader = new LogContentReader(logPath);
@@ -370,16 +370,16 @@ public class VersionLatestTest {
       logContentReader.forEachRemaining(records::add);
 
       // then
-      assertThat(records).hasSize(11);
+      assertThat(records).hasSize(15);
       // we skip the first raft record
       assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(0);
       assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count())
-          .isEqualTo(11);
+          .isEqualTo(15);
 
       final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
       assertThat(maxIndex).isEqualTo(17);
       final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
-      assertThat(minIndex).isEqualTo(7);
+      assertThat(minIndex).isEqualTo(3);
 
       final var maxPosition =
           records.stream()
@@ -388,7 +388,7 @@ public class VersionLatestTest {
               .map(ApplicationRecord::getHighestPosition)
               .max(Long::compareTo)
               .orElseThrow();
-      assertThat(maxPosition).isEqualTo(65);
+      assertThat(maxPosition).isEqualTo(83);
       final var minPosition =
           records.stream()
               .filter(ApplicationRecord.class::isInstance)
@@ -396,7 +396,7 @@ public class VersionLatestTest {
               .map(ApplicationRecord::getLowestPosition)
               .min(Long::compareTo)
               .orElseThrow();
-      assertThat(minPosition).isEqualTo(8);
+      assertThat(minPosition).isEqualTo(2);
     }
 
     @Test
@@ -457,7 +457,7 @@ public class VersionLatestTest {
               .map(ApplicationRecord::getHighestPosition)
               .max(Long::compareTo)
               .orElseThrow();
-      assertThat(maxPosition).isEqualTo(65);
+      assertThat(maxPosition).isEqualTo(83);
       final var minPosition =
           records.stream()
               .filter(ApplicationRecord.class::isInstance)
@@ -465,7 +465,7 @@ public class VersionLatestTest {
               .map(ApplicationRecord::getLowestPosition)
               .min(Long::compareTo)
               .orElseThrow();
-      assertThat(minPosition).isEqualTo(65);
+      assertThat(minPosition).isEqualTo(83);
     }
 
     @Test
@@ -496,7 +496,7 @@ public class VersionLatestTest {
               .map(ApplicationRecord::getHighestPosition)
               .max(Long::compareTo)
               .orElseThrow();
-      assertThat(maxPosition).isEqualTo(36);
+      assertThat(maxPosition).isEqualTo(54);
       final var minPosition =
           records.stream()
               .filter(ApplicationRecord.class::isInstance)
@@ -533,25 +533,26 @@ public class VersionLatestTest {
       final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
       final var logContentReader = new LogContentReader(logPath);
       final var records = new ArrayList<PersistedRecord>();
-      logContentReader.limitToPosition(2);
+      logContentReader.seekToIndex(4);
+      logContentReader.limitToPosition(24);
 
       // when
       logContentReader.forEachRemaining(records::add);
 
       // then
       assertThat(records).hasSize(2);
-      assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(1);
-      assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(1);
+      assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(0);
+      assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(2);
 
-      final var record = (ApplicationRecord) records.get(1);
+      final var record = (ApplicationRecord) records.get(0);
       // Index Term RecordType ValueType Intent Position SourceRecordPosition
 
       final String columnString = record.asColumnString();
       final String[] elements = columnString.trim().split(" ");
       assertThat(elements).hasSize(9); // deployment record skips the last two columns
-      assertThat(elements).containsSubsequence("2", "1", "1", "-1");
+      assertThat(elements).containsSubsequence("4", "1", "21", "-1");
       // we skip timestamp since it is not reproducible
-      assertThat(elements).containsSubsequence("-1", "COMMAND", "DEPLOYMENT", "RECONSTRUCT");
+      assertThat(elements).containsSubsequence("-1", "COMMAND", "DEPLOYMENT", "CREATE");
     }
 
     @Test
@@ -583,7 +584,7 @@ public class VersionLatestTest {
       final var outputStream = new ByteArrayOutputStream();
       logContentReader.limitToPosition(600);
       logContentReader.seekToPosition(6);
-      logContentReader.filterForProcessInstance(2251799813685253L);
+      logContentReader.filterForProcessInstance(2251799813685256L);
       final var logWriter = new LogWriter(outputStream, logContentReader);
 
       // when
@@ -594,8 +595,8 @@ public class VersionLatestTest {
           .startsWith(
               "Index Term Position SourceRecordPosition Timestamp Key RecordType ValueType Intent ProcessInstanceKey BPMNElementType")
           // EQUALs check is hard due to the timestamp
-          .contains("2251799813685254 EVENT VARIABLE CREATED 2251799813685253")
-          .contains("EVENT PROCESS_INSTANCE ELEMENT_ACTIVATING 2251799813685253 START_EVENT");
+          .contains("2251799813685258 EVENT VARIABLE CREATED 2251799813685256")
+          .contains("EVENT PROCESS_INSTANCE ELEMENT_ACTIVATING 2251799813685256 START_EVENT");
     }
 
     @Test
@@ -604,8 +605,8 @@ public class VersionLatestTest {
       final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
       final var logContentReader = new LogContentReader(logPath);
       final var records = new ArrayList<PersistedRecord>();
-      logContentReader.seekToPosition(5);
-      logContentReader.limitToPosition(30);
+      logContentReader.seekToPosition(24);
+      logContentReader.limitToPosition(50);
 
       // when
       logContentReader.forEachRemaining(records::add);
@@ -627,7 +628,7 @@ public class VersionLatestTest {
               .map(ApplicationRecord::getHighestPosition)
               .max(Long::compareTo)
               .orElseThrow();
-      assertThat(maxPosition).isEqualTo(36);
+      assertThat(maxPosition).isEqualTo(54);
       final var minPosition =
           records.stream()
               .filter(ApplicationRecord.class::isInstance)
@@ -635,7 +636,7 @@ public class VersionLatestTest {
               .map(ApplicationRecord::getLowestPosition)
               .min(Long::compareTo)
               .orElseThrow();
-      assertThat(minPosition).isEqualTo(4);
+      assertThat(minPosition).isEqualTo(22);
     }
 
     @Test
@@ -644,7 +645,7 @@ public class VersionLatestTest {
       final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
       final var logContentReader = new LogContentReader(logPath);
       final var records = new ArrayList<PersistedRecord>();
-      logContentReader.filterForProcessInstance(2251799813685253L);
+      logContentReader.filterForProcessInstance(2251799813685256L);
 
       // when
       logContentReader.forEachRemaining(records::add);
@@ -666,7 +667,7 @@ public class VersionLatestTest {
               .map(ApplicationRecord::getHighestPosition)
               .max(Long::compareTo)
               .orElseThrow();
-      assertThat(maxPosition).isEqualTo(36);
+      assertThat(maxPosition).isEqualTo(54);
       final var minPosition =
           records.stream()
               .filter(ApplicationRecord.class::isInstance)
@@ -674,7 +675,7 @@ public class VersionLatestTest {
               .map(ApplicationRecord::getLowestPosition)
               .min(Long::compareTo)
               .orElseThrow();
-      assertThat(minPosition).isEqualTo(8);
+      assertThat(minPosition).isEqualTo(26);
     }
 
     @Test
@@ -698,7 +699,7 @@ public class VersionLatestTest {
       final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
       final var logContentReader = new LogContentReader(logPath);
       final var records = new ArrayList<PersistedRecord>();
-      logContentReader.filterForProcessInstance(2251799813685253L);
+      logContentReader.filterForProcessInstance(2251799813685256L);
       logContentReader.seekToPosition(5);
       logContentReader.limitToPosition(30);
 
@@ -722,7 +723,7 @@ public class VersionLatestTest {
               .map(ApplicationRecord::getHighestPosition)
               .max(Long::compareTo)
               .orElseThrow();
-      assertThat(maxPosition).isEqualTo(36);
+      assertThat(maxPosition).isEqualTo(54);
       final var minPosition =
           records.stream()
               .filter(ApplicationRecord.class::isInstance)
@@ -730,7 +731,7 @@ public class VersionLatestTest {
               .map(ApplicationRecord::getLowestPosition)
               .min(Long::compareTo)
               .orElseThrow();
-      assertThat(minPosition).isEqualTo(8);
+      assertThat(minPosition).isEqualTo(26);
     }
 
     private static void verifyCompleteLog(final List<PersistedRecord> records) {
@@ -751,7 +752,7 @@ public class VersionLatestTest {
               .map(ApplicationRecord::getHighestPosition)
               .max(Long::compareTo)
               .orElseThrow();
-      assertThat(maxPosition).isEqualTo(65);
+      assertThat(maxPosition).isEqualTo(83);
       final var minPosition =
           records.stream()
               .filter(ApplicationRecord.class::isInstance)
