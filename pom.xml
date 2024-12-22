@@ -55,7 +55,7 @@
         <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
         <maven.compiler.release>21</maven.compiler.release>
         <plugin.version.checkstyle>3.4.0</plugin.version.checkstyle>
-        <plugin.version.fmt>2.23</plugin.version.fmt>
+        <plugin.version.fmt>2.25</plugin.version.fmt>
         <version.slf4j>2.0.13</version.slf4j>
         <plugin.version.license>4.5</plugin.version.license>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
