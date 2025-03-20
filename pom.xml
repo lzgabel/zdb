@@ -57,7 +57,7 @@
         <plugin.version.checkstyle>3.6.0</plugin.version.checkstyle>
         <plugin.version.fmt>2.25</plugin.version.fmt>
         <version.slf4j>2.0.17</version.slf4j>
-        <plugin.version.license>4.6</plugin.version.license>
+        <plugin.version.license>5.0.0</plugin.version.license>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <version.guava>30.0-jre</version.guava>
         <version.jackson-dataformat-msgpack>0.8.21</version.jackson-dataformat-msgpack>
