@@ -125,22 +125,6 @@ Find incidents for a given processInstanceKey
 zdb incident list --path=<pathToDatabase> | jq '. | map(select(.processInstanceKey==<PI_KEY>))'
 ```
 
-#### Inspect Banned Process Instances
-
-You can check if there are any processes stuck due to banning using the following commands.
-
-List all banned process instances in this partition:
-
-```sh
-zdb banned list --path=<pathToDatabase>
-```
-
-Returns details to a specific banned instance:
-
-```sh
-zdb banned entity <ProcessInstanceKey> --path=<pathToDatabase>
-```
-
 #### Inspect Processes
 You can inspect all deployed processes and get the resources of a specific process.
 
@@ -180,6 +164,16 @@ Example to see all processes
 
 ```
 $ zdb state --path=<pathToDatabase> list -cf PROCESS_CACHE
+```
+
+#### Inspect Banned Process Instances
+
+You can check if there are any processes stuck due to banning using the following commands.
+
+List all banned process instances in this partition:
+
+```sh
+zdb state --path=<pathToDatabase> list -cf BANNED_INSTANCE
 ```
 
 ### Log Inspection
