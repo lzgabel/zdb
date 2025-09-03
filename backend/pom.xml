@@ -33,18 +33,6 @@
     <name>ZDB Backend</name>
 
     <properties>
-        <exec-maven-plugin.version>1.6.0</exec-maven-plugin.version>
-        <kotlin.code.style>official</kotlin.code.style>
-        <kotlin.serialization.version>1.9.0</kotlin.serialization.version>
-        <kotlin.version>2.2.0</kotlin.version>
-        <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
-        <maven-failsafe-plugin.version>2.22.2</maven-failsafe-plugin.version>
-        <maven-surefire-plugin.version>2.22.2</maven-surefire-plugin.version>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <zeebe-test-container.version>3.6.5</zeebe-test-container.version>
-        <version.awaitility>4.3.0</version.awaitility>
-        <version.jackson>2.13.0</version.jackson>
-        <jackson-databind.version>2.13.0</jackson-databind.version>
     </properties>
 
     <build>
