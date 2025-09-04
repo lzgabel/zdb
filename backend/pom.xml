@@ -18,7 +18,7 @@
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-
+    <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>io.zell</groupId>
         <artifactId>zdb</artifactId>
@@ -26,9 +26,7 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <modelVersion>4.0.0</modelVersion>
     <artifactId>backend</artifactId>
-    <version>2.6.0-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>ZDB Backend</name>
 
@@ -47,7 +45,7 @@
             <plugin>
                 <groupId>org.jetbrains.kotlin</groupId>
                 <artifactId>kotlin-maven-plugin</artifactId>
-                <version>${kotlin.version}</version>
+                <version>${bom.version.kotlin}</version>
                 <executions>
                     <execution>
                         <id>compile</id>
@@ -73,7 +71,7 @@
                     <dependency>
                         <groupId>org.jetbrains.kotlin</groupId>
                         <artifactId>kotlin-maven-serialization</artifactId>
-                        <version>${kotlin.version}</version>
+                        <version>${bom.version.kotlin}</version>
                     </dependency>
                 </dependencies>
             </plugin>
@@ -81,7 +79,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.5.3</version>
+                <version>${maven-surefire-plugin.version}</version>
                 <configuration>
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
                 </configuration>
@@ -93,7 +91,7 @@
         <dependency>
             <groupId>io.camunda</groupId>
             <artifactId>zeebe-util</artifactId>
-            <version>${zeebe.version}</version>
+            <version>${bom.version.zeebe}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.springframework</groupId>
@@ -137,7 +135,7 @@
         <dependency>
             <groupId>io.camunda</groupId>
             <artifactId>zeebe-atomix-cluster</artifactId>
-            <version>${zeebe.version}</version>
+            <version>${bom.version.zeebe}</version>
             <exclusions>
                 <exclusion>
                     <groupId>io.camunda</groupId>
@@ -208,12 +206,12 @@
         <dependency>
             <groupId>io.camunda</groupId>
             <artifactId>zeebe-protocol</artifactId>
-            <version>${zeebe.version}</version>
+            <version>${bom.version.zeebe}</version>
         </dependency>
         <dependency>
             <groupId>io.camunda</groupId>
             <artifactId>zeebe-protocol-impl</artifactId>
-            <version>${zeebe.version}</version>
+            <version>${bom.version.zeebe}</version>
             <exclusions>
                 <exclusion>
                     <groupId>io.camunda</groupId>
@@ -224,7 +222,7 @@
         <dependency>
             <groupId>io.camunda</groupId>
             <artifactId>zeebe-logstreams</artifactId>
-            <version>${zeebe.version}</version>
+            <version>${bom.version.zeebe}</version>
             <exclusions>
                 <exclusion>
                     <groupId>io.camunda</groupId>
@@ -244,7 +242,7 @@
         <dependency>
             <groupId>io.camunda</groupId>
             <artifactId>zeebe-db</artifactId>
-            <version>${zeebe.version}</version>
+            <version>${bom.version.zeebe}</version>
             <exclusions>
                 <exclusion>
                     <groupId>io.prometheus</groupId>
@@ -256,7 +254,6 @@
         <dependency>
             <groupId>org.jetbrains.kotlin</groupId>
             <artifactId>kotlin-stdlib-jdk8</artifactId>
-            <version>${kotlin.version}</version>
         </dependency>
         <dependency>
             <groupId>org.jetbrains.kotlinx</groupId>
@@ -272,27 +269,26 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
-            <version>${version.slf4j}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>io.camunda</groupId>
             <artifactId>zeebe-bpmn-model</artifactId>
-            <version>${zeebe.version}</version>
+            <version>${bom.version.zeebe}</version>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>io.camunda</groupId>
             <artifactId>zeebe-client-java</artifactId>
-            <version>${zeebe.version}</version>
+            <version>${bom.version.zeebe}</version>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>io.camunda</groupId>
             <artifactId>zeebe-test-util</artifactId>
-            <version>${zeebe.version}</version>
+            <version>${bom.version.zeebe}</version>
             <scope>test</scope>
         </dependency>
 
@@ -306,13 +302,11 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers</artifactId>
-            <version>${testcontainers.version}</version>
             <scope>compile</scope>
         </dependency>
         <dependency>
             <groupId>org.jetbrains.kotlin</groupId>
             <artifactId>kotlin-test-junit5</artifactId>
-            <version>${kotlin.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
