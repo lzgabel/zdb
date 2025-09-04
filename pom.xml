@@ -42,6 +42,8 @@
     <properties>
         <bom.version.assertj>3.27.4</bom.version.assertj>
         <bom.version.junit>5.13.2</bom.version.junit>
+        <bom.version.kotlin>2.2.10</bom.version.kotlin>
+        <bom.version.slf4j>2.0.17</bom.version.slf4j>
         <bom.version.testcontainers>1.21.3</bom.version.testcontainers>
         <bom.version.zeebe>8.7.0-alpha2</bom.version.zeebe>
         <exec-maven-plugin.version>1.6.0</exec-maven-plugin.version>
@@ -53,7 +55,7 @@
         <kotlin.code.style>official</kotlin.code.style>
         <kotlin.compiler.jvmTarget>21</kotlin.compiler.jvmTarget>
         <kotlin.serialization.version>1.9.0</kotlin.serialization.version>
-        <bom.version.kotlin>2.2.10</bom.version.kotlin>
+        <maven-assembly-plugin.version>3.7.1</maven-assembly-plugin.version>
         <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
         <maven-failsafe-plugin.version>2.22.2</maven-failsafe-plugin.version>
         <maven-surefire-plugin.version>2.22.2</maven-surefire-plugin.version>
@@ -73,9 +75,7 @@
         <version.kryo>4.0.2</version.kryo>
         <version.log4j>2.14.1</version.log4j>
         <version.picocli>4.7.7</version.picocli>
-        <bom.version.slf4j>2.0.17</bom.version.slf4j>
         <zeebe-test-container.version>3.6.5</zeebe-test-container.version>
-        <maven-assembly-plugin.version>3.7.1</maven-assembly-plugin.version>
     </properties>
 
     <dependencyManagement>
