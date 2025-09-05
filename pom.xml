@@ -195,7 +195,7 @@
                 </executions>
                 <configuration>
                     <to>
-                        <image>ghcr.io/ChrisKujawa/zdb</image>
+                        <image>ghcr.io/chriskujawa/zdb</image>
                         <tags>${project.version}</tags>
                     </to>
                     <container>
