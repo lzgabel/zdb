@@ -61,7 +61,7 @@
         <maven-surefire-plugin.version>3.5.3</maven-surefire-plugin.version>
         <maven.compiler.release>21</maven.compiler.release>
         <plugin.version.checkstyle>3.6.0</plugin.version.checkstyle>
-        <plugin.version.fmt>2.27</plugin.version.fmt>
+        <plugin.version.fmt>2.28</plugin.version.fmt>
         <plugin.version.license>5.0.0</plugin.version.license>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
