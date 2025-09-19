@@ -40,7 +40,7 @@
         <url>https://github.com/ChrisKujawa</url>
     </organization>
     <properties>
-        <bom.version.assertj>3.27.4</bom.version.assertj>
+        <bom.version.assertj>3.27.5</bom.version.assertj>
         <bom.version.junit>5.13.4</bom.version.junit>
         <bom.version.kotlin>2.2.20</bom.version.kotlin>
         <bom.version.slf4j>2.0.17</bom.version.slf4j>
