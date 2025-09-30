@@ -41,7 +41,7 @@
     </organization>
     <properties>
         <bom.version.assertj>3.27.6</bom.version.assertj>
-        <bom.version.junit>5.13.4</bom.version.junit>
+        <bom.version.junit>5.14.0</bom.version.junit>
         <bom.version.kotlin>2.2.20</bom.version.kotlin>
         <bom.version.slf4j>2.0.17</bom.version.slf4j>
         <bom.version.testcontainers>1.21.3</bom.version.testcontainers>
