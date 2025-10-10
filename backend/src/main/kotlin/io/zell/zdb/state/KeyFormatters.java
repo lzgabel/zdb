@@ -138,6 +138,8 @@ public abstract class KeyFormatters {
               ZbColumnFamilies.AUTHORIZATIONS, KeyFormatter.DbValueFormatter.of("l"));
       FORMATTERS.put(
               ZbColumnFamilies.AUTHORIZATION_KEYS_BY_OWNER, KeyFormatter.DbValueFormatter.of("ss"));
+      FORMATTERS.put(
+              ZbColumnFamilies.USAGE_METRICS, KeyFormatter.DbValueFormatter.of("b"));
   }
 
   public abstract KeyFormatter forColumnFamily(ZbColumnFamilies columnFamily);
