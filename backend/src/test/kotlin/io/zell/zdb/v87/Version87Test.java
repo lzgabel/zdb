@@ -85,7 +85,7 @@ public class Version87Test {
           .moveToLastGateway()
           .serviceTask("incidentTask")
           .zeebeInputExpression("=foo", "bar") // before 8.3 caused an incident
-          .zeebeJobType("type")
+          .zeebeJobType("incidentTask")
           .zeebeJobRetriesExpression("=foo") // should cause to create an incident
           .endEvent()
           .done();
