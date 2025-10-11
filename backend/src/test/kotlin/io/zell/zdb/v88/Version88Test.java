@@ -54,7 +54,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.StreamSupport;
-
 import org.agrona.concurrent.UnsafeBuffer;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.AfterAll;
@@ -86,10 +85,11 @@ public class Version88Test {
           .moveToLastGateway()
           .serviceTask("incidentTask")
           .zeebeInputExpression("=foo", "bar") // before 8.3 caused an incident
-          .zeebeJobType("type")
+          .zeebeJobType("incidentTask")
           .zeebeJobRetriesExpression("=foo") // should cause to create an incident
           .endEvent()
           .done();
+  public static final String PARITION_ONE = "1";
 
   @Nested
   public class LargeLogTest {
@@ -107,9 +107,14 @@ public class Version88Test {
             // with 8.2 we disabled WAL per default
             // we have to enabled it inorder to access the data from RocksDB
             .withEnv("ZEEBE_BROKER_EXPERIMENTAL_ROCKSDB_DISABLEWAL", "false")
-            .withEnv("CAMUNDA_DATABASE_TYPE", "none")
+            // with 8.8 we have the OC with all component together
+            // to run Zeebe only we need to disable the secondary storage
+            // and set the active profiles to broker only
+            .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
+            .withEnv("SPRING_PROFILES_ACTIVE", "broker,standalone")
             .withLogConsumer(new Slf4jLogConsumer(LOGGER))
-            .withFileSystemBind(TEMP_DIR.getPath(), TestUtils.CONTAINER_PATH, BindMode.READ_WRITE);
+            .withFileSystemBind(
+                TEMP_DIR.getPath(), TestUtils.CONTAINER_PATH_88, BindMode.READ_WRITE);
 
     static {
       TEMP_DIR.mkdirs();
@@ -165,9 +170,14 @@ public class Version88Test {
             // with 8.2 we disabled WAL per default
             // we have to enabled it inorder to access the data from RocksDB
             .withEnv("ZEEBE_BROKER_EXPERIMENTAL_ROCKSDB_DISABLEWAL", "false")
-            .withEnv("CAMUNDA_DATABASE_TYPE", "none")
+            // with 8.8 we have the OC with all component together
+            // to run Zeebe only we need to disable the secondary storage
+            // and set the active profiles to broker only
+            .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
+            .withEnv("SPRING_PROFILES_ACTIVE", "broker,standalone")
             .withLogConsumer(new Slf4jLogConsumer(LOGGER))
-            .withFileSystemBind(TEMP_DIR.getPath(), TestUtils.CONTAINER_PATH, BindMode.READ_WRITE);
+            .withFileSystemBind(
+                TEMP_DIR.getPath(), TestUtils.CONTAINER_PATH_88, BindMode.READ_WRITE);
 
     static {
       TEMP_DIR.mkdirs();
@@ -912,18 +922,18 @@ public class Version88Test {
     public static ZeebeContainer zeebeContainer =
         new ZeebeContainer(DOCKER_IMAGE)
             /* run the container with the current user, in order to access the data and delete it later */
-//            .withCreateContainerCmdModifier(cmd -> cmd.withUser(TestUtils.getRunAsUser()))
+            .withCreateContainerCmdModifier(cmd -> cmd.withUser(TestUtils.getRunAsUser()))
             // with 8.2 we disabled WAL per default
             // we have to enabled it inorder to access the data from RocksDB
             .withEnv("ZEEBE_BROKER_EXPERIMENTAL_ROCKSDB_DISABLEWAL", "false")
             // with 8.8 we have the OC with all component together
             // to run Zeebe only we need to disable the secondary storage
-            .withEnv("CAMUNDA_DATABASE_TYPE", "none")
-            .withEnv("CAMUNDA_DATA_SECONDARY-STORAGE_TYPE ", "none")
-            .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE ", "none")
-            .withEnv("camunda.data. ", "none")
+            // and set the active profiles to broker only
+            .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
+            .withEnv("SPRING_PROFILES_ACTIVE", "broker,standalone")
             .withLogConsumer(new Slf4jLogConsumer(LOGGER))
-            .withFileSystemBind(TEMP_DIR.getPath(), TestUtils.CONTAINER_PATH, BindMode.READ_WRITE);
+            .withFileSystemBind(
+                TEMP_DIR.getPath(), TestUtils.CONTAINER_PATH_88, BindMode.READ_WRITE);
 
     static {
       TEMP_DIR.mkdirs();
