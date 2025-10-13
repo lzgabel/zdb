@@ -16,6 +16,7 @@
 package io.zell.zdb.v88;
 
 import static io.zell.zdb.TestUtils.TIMESTAMP_REGEX;
+import static io.zell.zdb.TestUtils.createZeebeContainerGreaterOrEquals88;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -62,8 +63,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.BindMode;
-import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
@@ -71,8 +70,7 @@ import org.testcontainers.utility.DockerImageName;
 @Testcontainers
 public class Version88Test {
 
-  private static final DockerImageName DOCKER_IMAGE =
-      DockerImageName.parse("camunda/camunda:8.8.0");
+  public static final DockerImageName DOCKER_IMAGE = DockerImageName.parse("camunda/camunda:8.8.0");
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   private static final BpmnModelInstance PROCESS =
@@ -102,20 +100,7 @@ public class Version88Test {
 
     @Container
     public static ZeebeContainer zeebeContainer =
-        new ZeebeContainer(DOCKER_IMAGE)
-            /* run the container with the current user, in order to access the data and delete it later */
-            .withCreateContainerCmdModifier(cmd -> cmd.withUser(TestUtils.getRunAsUser()))
-            // with 8.2 we disabled WAL per default
-            // we have to enabled it inorder to access the data from RocksDB
-            .withEnv("ZEEBE_BROKER_EXPERIMENTAL_ROCKSDB_DISABLEWAL", "false")
-            // with 8.8 we have the OC with all component together
-            // to run Zeebe only we need to disable the secondary storage
-            // and set the active profiles to broker only
-            .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
-            .withEnv("SPRING_PROFILES_ACTIVE", "broker,standalone")
-            .withLogConsumer(new Slf4jLogConsumer(LOGGER))
-            .withFileSystemBind(
-                TEMP_DIR.getPath(), TestUtils.CONTAINER_PATH_88, BindMode.READ_WRITE);
+        createZeebeContainerGreaterOrEquals88(DOCKER_IMAGE, TEMP_DIR.getPath(), LOGGER);
 
     static {
       TEMP_DIR.mkdirs();
@@ -165,20 +150,7 @@ public class Version88Test {
 
     @Container
     public static ZeebeContainer zeebeContainer =
-        new ZeebeContainer(DOCKER_IMAGE)
-            /* run the container with the current user, in order to access the data and delete it later */
-            .withCreateContainerCmdModifier(cmd -> cmd.withUser(TestUtils.getRunAsUser()))
-            // with 8.2 we disabled WAL per default
-            // we have to enabled it inorder to access the data from RocksDB
-            .withEnv("ZEEBE_BROKER_EXPERIMENTAL_ROCKSDB_DISABLEWAL", "false")
-            // with 8.8 we have the OC with all component together
-            // to run Zeebe only we need to disable the secondary storage
-            // and set the active profiles to broker only
-            .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
-            .withEnv("SPRING_PROFILES_ACTIVE", "broker,standalone")
-            .withLogConsumer(new Slf4jLogConsumer(LOGGER))
-            .withFileSystemBind(
-                TEMP_DIR.getPath(), TestUtils.CONTAINER_PATH_88, BindMode.READ_WRITE);
+        createZeebeContainerGreaterOrEquals88(DOCKER_IMAGE, TEMP_DIR.getPath(), LOGGER);
 
     static {
       TEMP_DIR.mkdirs();
@@ -893,20 +865,7 @@ public class Version88Test {
 
     @Container
     public static ZeebeContainer zeebeContainer =
-        new ZeebeContainer(DOCKER_IMAGE)
-            /* run the container with the current user, in order to access the data and delete it later */
-            .withCreateContainerCmdModifier(cmd -> cmd.withUser(TestUtils.getRunAsUser()))
-            // with 8.2 we disabled WAL per default
-            // we have to enabled it inorder to access the data from RocksDB
-            .withEnv("ZEEBE_BROKER_EXPERIMENTAL_ROCKSDB_DISABLEWAL", "false")
-            // with 8.8 we have the OC with all component together
-            // to run Zeebe only we need to disable the secondary storage
-            // and set the active profiles to broker only
-            .withEnv("CAMUNDA_DATA_SECONDARYSTORAGE_TYPE", "none")
-            .withEnv("SPRING_PROFILES_ACTIVE", "broker,standalone")
-            .withLogConsumer(new Slf4jLogConsumer(LOGGER))
-            .withFileSystemBind(
-                TEMP_DIR.getPath(), TestUtils.CONTAINER_PATH_88, BindMode.READ_WRITE);
+        createZeebeContainerGreaterOrEquals88(DOCKER_IMAGE, TEMP_DIR.getPath(), LOGGER);
 
     static {
       TEMP_DIR.mkdirs();
