@@ -176,7 +176,7 @@ public class Version84Test {
 
       // then
       assertThat(status.meta().commitIndex())
-          .as("no commit index in the meta store for 8.6")
+          .as("no commit index in the meta store for 8.4")
           .isZero();
       assertThat(status.meta().term()).isEqualTo(1);
       assertThat(status.meta().lastFlushedIndex()).isEqualTo(15);
