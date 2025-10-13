@@ -15,6 +15,10 @@
  */
 package io.zell.zdb.v81;
 
+import static io.zell.zdb.TestUtils.TIMESTAMP_REGEX;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,7 +33,6 @@ import io.camunda.zeebe.protocol.record.value.BpmnElementType;
 import io.camunda.zeebe.protocol.record.value.ErrorType;
 import io.camunda.zeebe.util.FileUtil;
 import io.zeebe.containers.ZeebeContainer;
-import io.zeebe.containers.ZeebeTopologyWaitStrategy;
 import io.zell.zdb.TestUtils;
 import io.zell.zdb.ZeebeContentCreator;
 import io.zell.zdb.ZeebePaths;
@@ -45,227 +48,215 @@ import io.zell.zdb.state.ZeebeDbReader;
 import io.zell.zdb.state.incident.IncidentState;
 import io.zell.zdb.state.instance.InstanceState;
 import io.zell.zdb.state.process.ProcessState;
-import org.agrona.concurrent.UnsafeBuffer;
-import org.assertj.core.api.InstanceOfAssertFactories;
-import org.junit.jupiter.api.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.BindMode;
-import org.testcontainers.containers.output.Slf4jLogConsumer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
-
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.StreamSupport;
-
-import static io.zell.zdb.TestUtils.CONTAINER_PATH;
-import static io.zell.zdb.TestUtils.TIMESTAMP_REGEX;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.agrona.concurrent.UnsafeBuffer;
+import org.assertj.core.api.InstanceOfAssertFactories;
+import org.junit.jupiter.api.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class Version81Test {
-    private static final DockerImageName DOCKER_IMAGE = DockerImageName.parse("camunda/zeebe:8.1.18");
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+  private static final DockerImageName DOCKER_IMAGE = DockerImageName.parse("camunda/zeebe:8.1.18");
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    private static final BpmnModelInstance PROCESS =
-            Bpmn.createExecutableProcess("process")
-                    .startEvent()
-                    .parallelGateway("gw")
-                    .serviceTask("task")
-                    .zeebeJobType("type")
-                    .endEvent()
-                    .moveToLastGateway()
-                    .serviceTask("incidentTask")
-                    .zeebeInputExpression("=foo", "bar")
-                    .zeebeJobType("type")
-                    .endEvent()
-                    .done();
-    @Nested
-    public class LargeLogTest {
-        // earlier ZDB versions failed on large logs, because of segments were async created and incomplete
-        private static final Logger LOGGER =
-                LoggerFactory.getLogger(LargeLogTest.class);
-        private static final File TEMP_DIR = TestUtils.newTmpFolder(LargeLogTest.class);
-        private static final ZeebeContentCreator zeebeContentCreator = new ZeebeContentCreator(PROCESS);
-        @Container
-        public static ZeebeContainer zeebeContainer = new ZeebeContainer(DOCKER_IMAGE)
-                /* run the container with the current user, in order to access the data and delete it later */
-                .withCreateContainerCmdModifier(cmd -> cmd.withUser(TestUtils.getRunAsUser()))
-                // with 8.2 we disabled WAL per default
-                // we have to enabled it inorder to access the data from RocksDB
-                .withEnv("ZEEBE_BROKER_EXPERIMENTAL_ROCKSDB_DISABLEWAL", "false")
-                .withLogConsumer(new Slf4jLogConsumer(LOGGER))
-                .withFileSystemBind(TEMP_DIR.getPath(), TestUtils.CONTAINER_PATH, BindMode.READ_WRITE);
+  private static final BpmnModelInstance PROCESS =
+      Bpmn.createExecutableProcess("process")
+          .startEvent()
+          .parallelGateway("gw")
+          .serviceTask("task")
+          .zeebeJobType("type")
+          .endEvent()
+          .moveToLastGateway()
+          .serviceTask("incidentTask")
+          .zeebeInputExpression("=foo", "bar")
+          .zeebeJobType("type")
+          .endEvent()
+          .done();
 
-        static {
-            TEMP_DIR.mkdirs();
-        }
+  @Nested
+  public class LargeLogTest {
+    // earlier ZDB versions failed on large logs, because of segments were async created and
+    // incomplete
+    private static final Logger LOGGER = LoggerFactory.getLogger(LargeLogTest.class);
+    private static final File TEMP_DIR = TestUtils.newTmpFolder(LargeLogTest.class);
+    private static final ZeebeContentCreator zeebeContentCreator = new ZeebeContentCreator(PROCESS);
 
-        @BeforeAll
-        public static void setup() {
-            zeebeContentCreator
-                    .createLargeContent(zeebeContainer.getExternalGatewayAddress());
-        }
+    @Container
+    public static ZeebeContainer zeebeContainer =
+        TestUtils.createZeebeContainerBefore85(DOCKER_IMAGE, TEMP_DIR.getPath(), LOGGER);
 
-        @AfterAll
-        public static void cleanup() throws Exception {
-            FileUtil.deleteFolderIfExists(TEMP_DIR.toPath());
-        }
-
-        @Test
-        public void shouldReadStatusFromLog() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logStatus = new LogStatus(logPath);
-
-            // when
-            final var status = logStatus.status();
-
-            // then
-            assertThat(status.getHighestIndex()).isEqualTo(224);
-            assertThat(status.getHighestTerm()).isEqualTo(1);
-            assertThat(status.getHighestRecordPosition()).isEqualTo(260);
-            assertThat(status.getLowestIndex()).isEqualTo(1);
-            assertThat(status.getLowestRecordPosition()).isEqualTo(1);
-
-            assertThat(status.toString())
-                    .contains("lowestRecordPosition")
-                    .contains("highestRecordPosition")
-                    .contains("highestTerm")
-                    .contains("highestIndex")
-                    .contains("lowestIndex");
-        }
+    static {
+      TEMP_DIR.mkdirs();
     }
 
-    @Nested
-    public class ZeebeLogTest {
-        private static final Logger LOGGER =
-                LoggerFactory.getLogger(ZeebeLogTest.class);
-        private static final File TEMP_DIR = TestUtils.newTmpFolder(ZeebeLogTest.class);
-        private static final ZeebeContentCreator zeebeContentCreator = new ZeebeContentCreator(PROCESS);
-        @Container
-        public static ZeebeContainer zeebeContainer = new ZeebeContainer(DOCKER_IMAGE)
-                /* run the container with the current user, in order to access the data and delete it later */
-                .withCreateContainerCmdModifier(cmd -> cmd.withUser(TestUtils.getRunAsUser()))
-                .withTopologyCheck(new ZeebeTopologyWaitStrategy())
-                .withLogConsumer(new Slf4jLogConsumer(LOGGER))
-                .withEnv("ZEEBE_BROKER_PROCESSING_MAXCOMMANDSINBATCH", "100")
-                .withFileSystemBind(TEMP_DIR.getPath(), CONTAINER_PATH, BindMode.READ_WRITE);
+    @BeforeAll
+    public static void setup() {
+      zeebeContentCreator.createLargeContent(zeebeContainer.getExternalGatewayAddress());
+    }
 
+    @AfterAll
+    public static void cleanup() throws Exception {
+      FileUtil.deleteFolderIfExists(TEMP_DIR.toPath());
+    }
 
-        static {
-            TEMP_DIR.mkdirs();
-        }
-        @BeforeAll
-        public static void setup() {
-            zeebeContentCreator
-                    .createContent(zeebeContainer.getExternalGatewayAddress());
-        }
+    @Test
+    public void shouldReadStatusFromLog() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logStatus = new LogStatus(logPath);
 
-        @AfterAll
-        public static void cleanup() throws Exception {
-            FileUtil.deleteFolderIfExists(TEMP_DIR.toPath());
-        }
+      // when
+      final var status = logStatus.status();
 
-        @Test
-        public void shouldReadStatusFromLog() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logStatus = new LogStatus(logPath);
+      // then
+      assertThat(status.getHighestIndex()).isEqualTo(224);
+      assertThat(status.getHighestTerm()).isEqualTo(1);
+      assertThat(status.getHighestRecordPosition()).isEqualTo(260);
+      assertThat(status.getLowestIndex()).isEqualTo(1);
+      assertThat(status.getLowestRecordPosition()).isEqualTo(1);
 
-            // when
-            final var status = logStatus.status();
+      assertThat(status.toString())
+          .contains("lowestRecordPosition")
+          .contains("highestRecordPosition")
+          .contains("highestTerm")
+          .contains("highestIndex")
+          .contains("lowestIndex");
+    }
+  }
 
-            // then
-            assertThat(status.getHighestIndex()).isEqualTo(15);
-            assertThat(status.getHighestTerm()).isEqualTo(1);
-            assertThat(status.getHighestRecordPosition()).isEqualTo(62);
-            assertThat(status.getLowestIndex()).isEqualTo(1);
-            assertThat(status.getLowestRecordPosition()).isEqualTo(1);
+  @Nested
+  public class ZeebeLogTest {
+    private static final Logger LOGGER = LoggerFactory.getLogger(ZeebeLogTest.class);
+    private static final File TEMP_DIR = TestUtils.newTmpFolder(ZeebeLogTest.class);
+    private static final ZeebeContentCreator zeebeContentCreator = new ZeebeContentCreator(PROCESS);
 
-            assertThat(status.toString())
-                    .contains("lowestRecordPosition")
-                    .contains("highestRecordPosition")
-                    .contains("highestTerm")
-                    .contains("highestIndex")
-                    .contains("lowestIndex");
-        }
+    @Container
+    public static ZeebeContainer zeebeContainer =
+        TestUtils.createZeebeContainerBefore85(DOCKER_IMAGE, TEMP_DIR.getPath(), LOGGER)
+            .withEnv("ZEEBE_BROKER_PROCESSING_MAXCOMMANDSINBATCH", "100");
 
-        @Test
-        public void shouldThrowWhenReadStatusFromNonExistingLog() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(new File("/tmp/doesntExist"), "1");
+    static {
+      TEMP_DIR.mkdirs();
+    }
 
-            // when - throw
-            assertThatThrownBy(() -> new LogStatus(logPath))
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("Expected to read segments, but there was nothing to read");
-        }
+    @BeforeAll
+    public static void setup() {
+      zeebeContentCreator.createContent(zeebeContainer.getExternalGatewayAddress());
+    }
 
-        @Test
-        public void shouldBuildLogContent() throws JsonProcessingException {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
+    @AfterAll
+    public static void cleanup() throws Exception {
+      FileUtil.deleteFolderIfExists(TEMP_DIR.toPath());
+    }
 
-            // when
-            final var content = logContentReader.readAll();
+    @Test
+    public void shouldReadStatusFromLog() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logStatus = new LogStatus(logPath);
 
-            // then
-            verifyCompleteLog(content.getRecords());
+      // when
+      final var status = logStatus.status();
 
-            final var objectMapper = new ObjectMapper();
-            final var jsonNode = objectMapper.readTree(content.toString());
-            assertThat(jsonNode).isNotNull(); // is valid json
-        }
+      // then
+      assertThat(status.getHighestIndex()).isEqualTo(15);
+      assertThat(status.getHighestTerm()).isEqualTo(1);
+      assertThat(status.getHighestRecordPosition()).isEqualTo(62);
+      assertThat(status.getLowestIndex()).isEqualTo(1);
+      assertThat(status.getLowestRecordPosition()).isEqualTo(1);
 
-        @Test
-        public void shouldReadLogContentWithIterator() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
+      assertThat(status.toString())
+          .contains("lowestRecordPosition")
+          .contains("highestRecordPosition")
+          .contains("highestTerm")
+          .contains("highestIndex")
+          .contains("lowestIndex");
+    }
 
-            // when
-            logContentReader.forEachRemaining(records::add);
+    @Test
+    public void shouldThrowWhenReadStatusFromNonExistingLog() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(new File("/tmp/doesntExist"), "1");
 
-            // then
-            verifyCompleteLog(records);
-        }
+      // when - throw
+      assertThatThrownBy(() -> new LogStatus(logPath))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("Expected to read segments, but there was nothing to read");
+    }
 
-        @Test
-        public void shouldReadRejection() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
+    @Test
+    public void shouldBuildLogContent() throws JsonProcessingException {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
 
-            // when
-            logContentReader.filterForRejections();
+      // when
+      final var content = logContentReader.readAll();
 
-            // then
-            final var rejection = StreamSupport.stream(Spliterators.spliteratorUnknownSize(logContentReader, Spliterator.ORDERED), false)
-                    .filter(persistedRecord -> persistedRecord instanceof ApplicationRecord)
-                    .map(persistedRecord -> (ApplicationRecord) persistedRecord)
-                    .flatMap(applicationRecord -> applicationRecord.getEntries().stream())
-                    .filter(record -> record.component8() != RejectionType.NULL_VAL)
-                    .findFirst();
+      // then
+      verifyCompleteLog(content.getRecords());
 
-            assertThat(rejection).isPresent();
-            assertThat(rejection.get().component8()).isEqualTo(RejectionType.NOT_FOUND);
-            assertThat(rejection.get().component9()).isEqualTo("Expected to find process definition with process ID 'nonExisting', but none found");
-        }
+      final var objectMapper = new ObjectMapper();
+      final var jsonNode = objectMapper.readTree(content.toString());
+      assertThat(jsonNode).isNotNull(); // is valid json
+    }
 
-        @Test
-        public void shouldSerializeRejectionToJson() throws JsonProcessingException {
-            // given
-            final var expectedJson = OBJECT_MAPPER.readTree("""
+    @Test
+    public void shouldReadLogContentWithIterator() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+
+      // when
+      logContentReader.forEachRemaining(records::add);
+
+      // then
+      verifyCompleteLog(records);
+    }
+
+    @Test
+    public void shouldReadRejection() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+
+      // when
+      logContentReader.filterForRejections();
+
+      // then
+      final var rejection =
+          StreamSupport.stream(
+                  Spliterators.spliteratorUnknownSize(logContentReader, Spliterator.ORDERED), false)
+              .filter(persistedRecord -> persistedRecord instanceof ApplicationRecord)
+              .map(persistedRecord -> (ApplicationRecord) persistedRecord)
+              .flatMap(applicationRecord -> applicationRecord.getEntries().stream())
+              .filter(record -> record.component8() != RejectionType.NULL_VAL)
+              .findFirst();
+
+      assertThat(rejection).isPresent();
+      assertThat(rejection.get().component8()).isEqualTo(RejectionType.NOT_FOUND);
+      assertThat(rejection.get().component9())
+          .isEqualTo(
+              "Expected to find process definition with process ID 'nonExisting', but none found");
+    }
+
+    @Test
+    public void shouldSerializeRejectionToJson() throws JsonProcessingException {
+      // given
+      final var expectedJson =
+          OBJECT_MAPPER.readTree(
+"""
                     {"position":62,"sourceRecordPosition":61,"key":-1,"recordType":"COMMAND_REJECTION",
                     "valueType":"PROCESS_INSTANCE_CREATION","intent":"CREATE","rejectionType":"NOT_FOUND",
                     "rejectionReason":"Expected to find process definition with process ID 'nonExisting', but none found",
@@ -275,911 +266,996 @@ public class Version81Test {
                     "startInstructions":[]}}
                     }
 """);
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
 
-            // when
-            logContentReader.filterForRejections();
+      // when
+      logContentReader.filterForRejections();
 
-            // then
-            final var rejection = StreamSupport.stream(Spliterators.spliteratorUnknownSize(logContentReader, Spliterator.ORDERED), false)
-                    .filter(persistedRecord -> persistedRecord instanceof ApplicationRecord)
-                    .map(persistedRecord -> (ApplicationRecord) persistedRecord)
-                    .flatMap(applicationRecord -> applicationRecord.getEntries().stream())
-                    .filter(record -> !record.component8().equals(RejectionType.NULL_VAL.name()))
-                    .findFirst();
+      // then
+      final var rejection =
+          StreamSupport.stream(
+                  Spliterators.spliteratorUnknownSize(logContentReader, Spliterator.ORDERED), false)
+              .filter(persistedRecord -> persistedRecord instanceof ApplicationRecord)
+              .map(persistedRecord -> (ApplicationRecord) persistedRecord)
+              .flatMap(applicationRecord -> applicationRecord.getEntries().stream())
+              .filter(record -> !record.component8().equals(RejectionType.NULL_VAL.name()))
+              .findFirst();
 
-            assertThat(rejection).isPresent();
-            assertThat(rejection.get().component8()).isEqualTo(RejectionType.NOT_FOUND);
-            assertThat(rejection.get().component9()).isEqualTo("Expected to find process definition with process ID 'nonExisting', but none found");
+      assertThat(rejection).isPresent();
+      assertThat(rejection.get().component8()).isEqualTo(RejectionType.NOT_FOUND);
+      assertThat(rejection.get().component9())
+          .isEqualTo(
+              "Expected to find process definition with process ID 'nonExisting', but none found");
 
-            final var recordJson = rejection.get().toString()
-                    .replaceFirst(TIMESTAMP_REGEX, "");
-            final var actualJson = OBJECT_MAPPER.readTree(recordJson);
-            assertThat(actualJson).isNotNull(); // is valid json
-            assertThat(actualJson).isEqualTo(expectedJson);
-        }
+      final var recordJson = rejection.get().toString().replaceFirst(TIMESTAMP_REGEX, "");
+      final var actualJson = OBJECT_MAPPER.readTree(recordJson);
+      assertThat(actualJson).isNotNull(); // is valid json
+      assertThat(actualJson).isEqualTo(expectedJson);
+    }
 
-        @Test
-        public void shouldSerializeRecordToJson() throws JsonProcessingException {
-            // given
-            final var expectedJson = OBJECT_MAPPER.readTree("""
+    @Test
+    public void shouldSerializeRecordToJson() throws JsonProcessingException {
+      // given
+      final var expectedJson =
+          OBJECT_MAPPER.readTree(
+              """
                     {"position":13,"sourceRecordPosition":6,"key":2251799813685252,"recordType":"EVENT",
                     "valueType":"PROCESS_INSTANCE","intent":"ELEMENT_ACTIVATED","requestId":-1,
                     "requestStreamId":-2147483648,"protocolVersion":3,"brokerVersion":"8.1.18",
                     "recordValue":{"bpmnProcessId":"process","version":1,"processDefinitionKey":2251799813685249,
                     "processInstanceKey":2251799813685252,"elementId":"process","flowScopeKey":-1,
                     "bpmnElementType":"PROCESS","parentProcessInstanceKey":-1,"parentElementInstanceKey":-1}}""");
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            logContentReader.filterForProcessInstance(zeebeContentCreator.processInstanceEvent.getProcessInstanceKey());
-
-            // when
-            final var piActivated = StreamSupport.stream(Spliterators.spliteratorUnknownSize(logContentReader, Spliterator.ORDERED), false)
-                    .filter(persistedRecord -> persistedRecord instanceof ApplicationRecord)
-                    .map(persistedRecord -> (ApplicationRecord) persistedRecord)
-                    .flatMap(applicationRecord -> applicationRecord.getEntries().stream())
-                    .filter(record -> record.component6() == ValueType.PROCESS_INSTANCE)
-                    .filter(record -> record.component7() == ProcessInstanceIntent.ELEMENT_ACTIVATED)
-                    .filter(record -> record.getPiRelatedValue() != null)
-                    .filter(record -> record.getPiRelatedValue().getBpmnElementType() == BpmnElementType.PROCESS)
-                    .findFirst();
-
-            // then
-            assertThat(piActivated).isPresent();
-            final var recordJson = piActivated.get().toString()
-                    .replaceFirst(TIMESTAMP_REGEX, "");
-            final var actualJson = OBJECT_MAPPER.readTree(recordJson);
-            assertThat(actualJson).isNotNull(); // is valid json
-            assertThat(actualJson).isEqualTo(expectedJson);
-        }
-        @Test
-        public void shouldSkipFirstPartOfLog() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
-            logContentReader.seekToPosition(10);
-
-            // when
-            logContentReader.forEachRemaining(records::add);
-
-            // then
-            assertThat(records).hasSize(11);
-            // we skip the first raft record
-            assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(0);
-            assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(11);
-
-            final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
-            assertThat(maxIndex).isEqualTo(15);
-            final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
-            assertThat(minIndex).isEqualTo(5);
-
-            final var maxPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getHighestPosition)
-                    .max(Long::compareTo)
-                    .orElseThrow();
-            assertThat(maxPosition).isEqualTo(62);
-            final var minPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getLowestPosition)
-                    .min(Long::compareTo)
-                    .orElseThrow();
-            assertThat(minPosition).isEqualTo(7);
-        }
-
-        @Test
-        public void shouldNotSkipIfNegativeSeek() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
-            logContentReader.seekToPosition(-1);
-
-            // when
-            logContentReader.forEachRemaining(records::add);
-
-            // then
-            verifyCompleteLog(records);
-        }
-
-        @Test
-        public void shouldNotSkipIfZeroSeek() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
-            logContentReader.seekToPosition(0);
-
-            // when
-            logContentReader.forEachRemaining(records::add);
-
-            // then
-            verifyCompleteLog(records);
-        }
-
-        @Test
-        public void shouldSeekToEndOfLogIfNoExistingSeek() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
-            logContentReader.seekToPosition(Long.MAX_VALUE);
-
-            // when
-            logContentReader.forEachRemaining(records::add);
-
-            // then
-            assertThat(records).hasSize(1);
-            assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(0);
-            assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(1);
-
-            final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
-            assertThat(maxIndex).isEqualTo(15);
-            final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
-            assertThat(minIndex).isEqualTo(15);
-
-            final var maxPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getHighestPosition)
-                    .max(Long::compareTo)
-                    .orElseThrow();
-            assertThat(maxPosition).isEqualTo(62);
-            final var minPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getLowestPosition)
-                    .min(Long::compareTo)
-                    .orElseThrow();
-            assertThat(minPosition).isEqualTo(62);
-        }
-
-        @Test
-        public void shouldLimitLogToPosition() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
-            logContentReader.limitToPosition(30);
-
-            // when
-            logContentReader.forEachRemaining(records::add);
-
-            // then
-            assertThat(records).hasSize(5);
-            assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(1);
-            assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(4);
-
-            final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
-            assertThat(maxIndex).isEqualTo(5);
-            final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
-            assertThat(minIndex).isEqualTo(1);
-
-            final var maxPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getHighestPosition)
-                    .max(Long::compareTo)
-                    .orElseThrow();
-            assertThat(maxPosition).isEqualTo(34);
-            final var minPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getLowestPosition)
-                    .min(Long::compareTo)
-                    .orElseThrow();
-            assertThat(minPosition).isEqualTo(1);
-        }
-
-        @Test
-        public void shouldLimitViaPositionExclusive() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
-            logContentReader.limitToPosition(1);
-
-            // when
-            logContentReader.forEachRemaining(records::add);
-
-            // then
-            assertThat(records).hasSize(1);
-            assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(1);
-            final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
-            assertThat(maxIndex).isEqualTo(1);
-            final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
-            assertThat(minIndex).isEqualTo(1);
-        }
-
-        @Test
-        public void shouldConvertRecordToColumn() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
-            logContentReader.limitToPosition(2);
-
-            // when
-            logContentReader.forEachRemaining(records::add);
-
-            // then
-            assertThat(records).hasSize(2);
-            assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(1);
-            assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(1);
-
-            final var record = (ApplicationRecord) records.get(1);
-            // Index Term RecordType ValueType Intent Position SourceRecordPosition
-
-            String columnString = record.asColumnString();
-            String[] elements = columnString.trim().split(" ");
-            assertThat(elements).hasSize(9); // deployment record skips the last two columns
-            assertThat(elements).containsSubsequence("2", "1", "1", "-1");
-            // we skip timestamp since it is not reproducible
-            assertThat(elements).containsSubsequence("-1", "COMMAND", "DEPLOYMENT", "CREATE");
-        }
-
-        @Test
-        public void shouldWriteTableHeaderToStreamWhenNoDataFound() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var outputStream = new ByteArrayOutputStream();
-            logContentReader.limitToPosition(30);
-            logContentReader.seekToPosition(3);
-            logContentReader.filterForProcessInstance(2251799813685254L);
-            final var logWriter = new LogWriter(outputStream, logContentReader);
-
-            // when
-            logWriter.writeAsTable();
-
-            // then
-            assertThat(outputStream.toString().trim())
-                    .isEqualTo("Index Term Position SourceRecordPosition Timestamp Key RecordType ValueType Intent ProcessInstanceKey BPMNElementType");
-        }
-
-        @Test
-        public void shouldWriteTableToStream() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
-            final var outputStream = new ByteArrayOutputStream();
-            logContentReader.limitToPosition(600);
-            logContentReader.seekToPosition(6);
-            logContentReader.filterForProcessInstance(2251799813685252L);
-            final var logWriter = new LogWriter(outputStream, logContentReader);
-
-            // when
-            logWriter.writeAsTable();
-
-            // then
-            assertThat(outputStream.toString())
-                    .startsWith("Index Term Position SourceRecordPosition Timestamp Key RecordType ValueType Intent ProcessInstanceKey BPMNElementType")
-                    // EQUALs check is hard due to the timestamp
-                    .contains("2251799813685253 EVENT VARIABLE CREATED 2251799813685252")
-                    .contains("EVENT PROCESS_INSTANCE ELEMENT_ACTIVATING 2251799813685252 START_EVENT");
-        }
-
-        @Test
-        public void shouldSeekAndLimitLogWithPosition() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
-            logContentReader.seekToPosition(5);
-            logContentReader.limitToPosition(30);
-
-            // when
-            logContentReader.forEachRemaining(records::add);
-
-            // then
-            assertThat(records).hasSize(3);
-            assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(0);
-            assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(3);
-
-            final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
-            assertThat(maxIndex).isEqualTo(5);
-            final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
-            assertThat(minIndex).isEqualTo(3);
-
-            final var maxPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getHighestPosition)
-                    .max(Long::compareTo)
-                    .orElseThrow();
-            assertThat(maxPosition).isEqualTo(34);
-            final var minPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getLowestPosition)
-                    .min(Long::compareTo)
-                    .orElseThrow();
-            assertThat(minPosition).isEqualTo(2);
-        }
-        @Test
-        public void shouldFilterWithProcessInstanceKey() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
-            logContentReader.filterForProcessInstance(2251799813685252L);
-
-            // when
-            logContentReader.forEachRemaining(records::add);
-
-            // then
-            assertThat(records).hasSize(1);
-            assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(0);
-            assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(1);
-
-            final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
-            assertThat(maxIndex).isEqualTo(5);
-            final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
-            assertThat(minIndex).isEqualTo(5);
-
-            final var maxPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getHighestPosition)
-                    .max(Long::compareTo)
-                    .orElseThrow();
-            assertThat(maxPosition).isEqualTo(34);
-            final var minPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getLowestPosition)
-                    .min(Long::compareTo)
-                    .orElseThrow();
-            assertThat(minPosition).isEqualTo(7);
-        }
-
-        @Test
-        public void shouldFilterWithNoExistingProcessInstanceKey() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
-            logContentReader.filterForProcessInstance(0xCAFE);
-
-            // when
-            logContentReader.forEachRemaining(records::add);
-
-            // then
-            assertThat(records).hasSize(0);
-        }
-
-        @Test
-        public void shouldFilterWithProcessInstanceKeyAndSetBeginAndEndOfLogPosition() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var records = new ArrayList<PersistedRecord>();
-            logContentReader.filterForProcessInstance(2251799813685252L);
-            logContentReader.seekToPosition(5);
-            logContentReader.limitToPosition(30);
-
-            // when
-            logContentReader.forEachRemaining(records::add);
-
-            // then
-            assertThat(records).hasSize(1);
-            assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(0);
-            assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(1);
-
-            final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
-            assertThat(maxIndex).isEqualTo(5);
-            final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
-            assertThat(minIndex).isEqualTo(5);
-
-            final var maxPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getHighestPosition)
-                    .max(Long::compareTo)
-                    .orElseThrow();
-            assertThat(maxPosition).isEqualTo(34);
-            final var minPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getLowestPosition)
-                    .min(Long::compareTo)
-                    .orElseThrow();
-            assertThat(minPosition).isEqualTo(7);
-        }
-
-        private static void verifyCompleteLog(List<PersistedRecord> records) {
-            assertThat(records).hasSize(15);
-            assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(1);
-            assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(14);
-
-            final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
-            assertThat(maxIndex).isEqualTo(15);
-            final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
-            assertThat(minIndex).isEqualTo(1);
-
-            final var maxPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getHighestPosition)
-                    .max(Long::compareTo)
-                    .orElseThrow();
-            assertThat(maxPosition).isEqualTo(62);
-            final var minPosition = records.stream()
-                    .filter(ApplicationRecord.class::isInstance)
-                    .map(ApplicationRecord.class::cast)
-                    .map(ApplicationRecord::getLowestPosition)
-                    .min(Long::compareTo)
-                    .orElseThrow();
-            assertThat(minPosition).isEqualTo(1);
-        }
-
-        @Test
-        public void shouldReturnLogContentAsDotFile() throws JsonProcessingException {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-            final var content = logContentReader.readAll();
-
-            // when
-            final var dotFileContent = content.asDotFile();
-
-            // then
-            assertThat(dotFileContent).startsWith("digraph log {").endsWith("}");
-        }
-
-        @Test
-        public void shouldContainNoDuplicatesInLogContent() throws JsonProcessingException {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logContentReader = new LogContentReader(logPath);
-
-            // when
-            final var content = logContentReader.readAll();
-
-            // then
-            // validate that records are not duplicated in LogContent
-            assertThat(content.getRecords())
-                    .filteredOn(ApplicationRecord.class::isInstance)
-                    .asInstanceOf(InstanceOfAssertFactories.list(ApplicationRecord.class))
-                    .flatExtracting(ApplicationRecord::getEntries)
-                    .extracting(io.zell.zdb.log.records.Record::getPosition)
-                    .doesNotHaveDuplicates();
-        }
-
-        @Test
-        public void shouldSearchPositionInLog() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logSearch = new LogSearch(logPath);
-            final var position = 1;
-
-            // when
-            final var record = logSearch.searchPosition(position);
-
-            // then
-            assertThat(record).isNotNull();
-            assertThat(record.getPosition()).isEqualTo(position);
-        }
-
-        @Test
-        public void shouldReturnNullOnNegPosition() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logSearch = new LogSearch(logPath);
-
-            // when
-            final var record = logSearch.searchPosition(-1);
-
-            // then
-            assertThat(record).isNull();
-        }
-
-        @Test
-        public void shouldReturnNullOnToBigPosition() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logSearch = new LogSearch(logPath);
-
-            // when
-            final var record = logSearch.searchPosition(Long.MAX_VALUE);
-
-            // then
-            assertThat(record).isNull();
-        }
-
-        @Test
-        public void shouldSearchIndexInLog() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logSearch = new LogSearch(logPath);
-            final var index = 7;
-
-            // when
-            final var record = logSearch.searchIndex(index);
-
-            // then
-            assertThat(record).isNotNull();
-        }
-
-        @Test
-        public void shouldNotReturnDuplicatesWhenSearchForIndexInLog() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logSearch = new LogSearch(logPath);
-            final var index = 7;
-
-            // when
-            final var record = logSearch.searchIndex(index);
-
-            // then
-            // validate that records are not duplicated in LogContent
-            assertThat(record)
-                    .asInstanceOf(InstanceOfAssertFactories.type(ApplicationRecord.class))
-                    .extracting(ApplicationRecord::getEntries)
-                    .asInstanceOf(InstanceOfAssertFactories.list(io.zell.zdb.log.records.Record.class))
-                    .extracting(Record::getPosition)
-                    .doesNotHaveDuplicates();
-        }
-
-        @Test
-        public void shouldReturnNullOnNegIndex() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logSearch = new LogSearch(logPath);
-
-            // when
-            final var logContent = logSearch.searchIndex(-1);
-
-            // then
-            assertThat(logContent).isNull();
-        }
-
-        @Test
-        public void shouldReturnNullOnToBigIndex() {
-            // given
-            final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
-            var logSearch = new LogSearch(logPath);
-
-            // when
-            final var logContent = logSearch.searchIndex(Long.MAX_VALUE);
-
-            // then
-            assertThat(logContent).isNull();
-        }
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      logContentReader.filterForProcessInstance(
+          zeebeContentCreator.processInstanceEvent.getProcessInstanceKey());
+
+      // when
+      final var piActivated =
+          StreamSupport.stream(
+                  Spliterators.spliteratorUnknownSize(logContentReader, Spliterator.ORDERED), false)
+              .filter(persistedRecord -> persistedRecord instanceof ApplicationRecord)
+              .map(persistedRecord -> (ApplicationRecord) persistedRecord)
+              .flatMap(applicationRecord -> applicationRecord.getEntries().stream())
+              .filter(record -> record.component6() == ValueType.PROCESS_INSTANCE)
+              .filter(record -> record.component7() == ProcessInstanceIntent.ELEMENT_ACTIVATED)
+              .filter(record -> record.getPiRelatedValue() != null)
+              .filter(
+                  record ->
+                      record.getPiRelatedValue().getBpmnElementType() == BpmnElementType.PROCESS)
+              .findFirst();
+
+      // then
+      assertThat(piActivated).isPresent();
+      final var recordJson = piActivated.get().toString().replaceFirst(TIMESTAMP_REGEX, "");
+      final var actualJson = OBJECT_MAPPER.readTree(recordJson);
+      assertThat(actualJson).isNotNull(); // is valid json
+      assertThat(actualJson).isEqualTo(expectedJson);
     }
 
-    @Nested
-    public class ZeebeStateTest {
+    @Test
+    public void shouldSkipFirstPartOfLog() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+      logContentReader.seekToPosition(10);
 
-        private static final Logger LOGGER =
-                LoggerFactory.getLogger(ZeebeStateTest.class);
-        private static final File TEMP_DIR = TestUtils.newTmpFolder(ZeebeStateTest.class);
-        private static final ZeebeContentCreator zeebeContentCreator = new ZeebeContentCreator( PROCESS);
-        @Container
-        public static ZeebeContainer zeebeContainer = new ZeebeContainer(DOCKER_IMAGE)
-                /* run the container with the current user, in order to access the data and delete it later */
-                .withCreateContainerCmdModifier(cmd -> cmd.withUser(TestUtils.getRunAsUser()))
-                .withLogConsumer(new Slf4jLogConsumer(LOGGER))
-                .withEnv("ZEEBE_BROKER_PROCESSING_MAXCOMMANDSINBATCH", "100")
-                .withFileSystemBind(TEMP_DIR.getPath(), CONTAINER_PATH, BindMode.READ_WRITE);
+      // when
+      logContentReader.forEachRemaining(records::add);
 
+      // then
+      assertThat(records).hasSize(11);
+      // we skip the first raft record
+      assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(0);
+      assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count())
+          .isEqualTo(11);
 
-        static {
-            TEMP_DIR.mkdirs();
-        }
-        @BeforeAll
-        public static void setup() {
-            zeebeContentCreator
-                    .createContent(zeebeContainer.getExternalGatewayAddress());
-        }
+      final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
+      assertThat(maxIndex).isEqualTo(15);
+      final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
+      assertThat(minIndex).isEqualTo(5);
 
-        @AfterAll
-        public static void cleanup() throws Exception {
-            FileUtil.deleteFolderIfExists(TEMP_DIR.toPath());
-        }
-
-        @Test
-        public void shouldCreateStatsForCompleteState() {
-            // given
-            final var experimental = new ZeebeDbReader(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
-
-            // when
-            final var cfMap = experimental.stateStatistics();
-
-            // then
-            assertThat(cfMap).containsEntry(ZbColumnFamilies.JOBS.name(), 1)
-                    .containsEntry(ZbColumnFamilies.VARIABLES.name(), 3)
-                    .containsEntry(ZbColumnFamilies.INCIDENTS.name(), 1)
-                    .containsEntry(ZbColumnFamilies.ELEMENT_INSTANCE_KEY.name(), 3);
-        }
-
-        @Test
-        public void shouldVisitValuesAsJson() {
-            // given
-            final var experimental = new ZeebeDbReader(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
-            final var incidentMap = new HashMap<String, String>();
-            ZeebeDbReader.JsonValueVisitor jsonVisitor = (cf, k, v) -> {
-                if (cf.equals(ZbColumnFamilies.INCIDENTS.name())) {
-                    incidentMap.put(new String(k), v);
-                }
-            };
-
-            // when
-            experimental.visitDBWithJsonValues(jsonVisitor);
-
-            // then
-            assertThat(incidentMap).containsValue("{\"incidentRecord\":{\"errorType\":\"IO_MAPPING_ERROR\",\"errorMessage\":\"failed to evaluate expression '{bar:foo}': no variable found for name 'foo'\",\"bpmnProcessId\":\"process\",\"processDefinitionKey\":2251799813685249,\"processInstanceKey\":2251799813685252,\"elementId\":\"incidentTask\",\"elementInstanceKey\":2251799813685261,\"jobKey\":-1,\"variableScopeKey\":2251799813685261}}");
-        }
-
-        @Test
-        public void shouldListProcesses() {
-            // given
-            final var processState = new ProcessState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
-            final var processes = new HashMap<Long, String>();
-
-            // when
-            processState.listProcesses((key, valueJson) -> processes.put(new UnsafeBuffer(key).getLong(Long.BYTES, ZeebeDbConstants.ZB_DB_BYTE_ORDER), valueJson));
-
-            // then
-            assertThat(processes).containsKey(2251799813685249L).containsKey(2251799813685250L);
-        }
-
-        @Test
-        public void shouldGetProcessDetails() throws JsonProcessingException {
-            // given
-            final var processes = new ArrayList<String>();
-            Path runtimePath = ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1");
-            final var processState = new ProcessState(runtimePath);
-            final var returnedProcess = zeebeContentCreator.deploymentEvent.getProcesses().get(0);
-
-            // when
-            processState.processDetails(returnedProcess.getProcessDefinitionKey(), (k, v) -> processes.add(v));
-
-            // then
-            assertThat(processes).hasSize(1);
-
-            final var objectMapper = new ObjectMapper();
-
-            final var jsonNode = objectMapper.readTree(processes.get(0));
-
-            assertThat(jsonNode.get("bpmnProcessId").asText()).isEqualTo(returnedProcess.getBpmnProcessId());
-            assertThat(jsonNode.get("key").asLong())
-                    .isEqualTo(returnedProcess.getProcessDefinitionKey());
-            assertThat(jsonNode.get("resourceName").asText()).isEqualTo(returnedProcess.getResourceName());
-            assertThat(jsonNode.get("version").asInt()).isEqualTo(returnedProcess.getVersion());
-            assertThat(jsonNode.get("resource").asText())
-                    .isEqualTo(Base64.getEncoder().encodeToString(Bpmn.convertToString(PROCESS).getBytes(StandardCharsets.UTF_8)));
-        }
-
-        @Test
-        public void shouldNotFailOnNonExistingProcess() {
-            // given
-            final var processes = new ArrayList<String>();
-
-            // when
-            final var processState = new ProcessState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
-            processState.processDetails(0xCAFE, (k, v) -> processes.add(v));
-
-            // then
-            assertThat(processes).isEmpty();
-        }
-
-        @Test
-        public void shouldGetProcessInstanceDetails() throws JsonProcessingException {
-            // given
-            final var processInstanceEvent = zeebeContentCreator.processInstanceEvent;
-            final var processInstanceKey = processInstanceEvent.getProcessInstanceKey();
-
-            // when
-            final var processState = new InstanceState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
-            final var actualInstanceDetails = processState.getInstance(processInstanceKey);
-
-            // then
-            assertThat(actualInstanceDetails).isNotNull();
-            final var instanceAsJson = OBJECT_MAPPER.readTree(actualInstanceDetails);
-            final var elementRecord = instanceAsJson.get("elementRecord");
-            assertThat(elementRecord.get("key").asLong()).isEqualTo(processInstanceKey);
-            assertThat(elementRecord.get("state").asText()).isEqualTo(ProcessInstanceIntent.ELEMENT_ACTIVATED.toString());
-            final var processInstanceRecord = elementRecord.get("processInstanceRecord");
-            assertThat(processInstanceRecord.get("bpmnProcessId").asText()).isEqualTo(processInstanceEvent.getBpmnProcessId());
-            assertThat(processInstanceRecord.get("processDefinitionKey").asLong()).isEqualTo(processInstanceEvent.getProcessDefinitionKey());
-            assertThat(processInstanceRecord.get("version").asInt()).isEqualTo(processInstanceEvent.getVersion());
-            assertThat(processInstanceRecord.get("processInstanceKey").asLong()).isEqualTo(processInstanceEvent.getProcessInstanceKey());
-            assertThat(processInstanceRecord.get("elementId").asText()).isEqualTo("process");
-            assertThat(processInstanceRecord.get("bpmnElementType").asText()).isEqualTo(BpmnElementType.PROCESS.name());
-            assertThat(processInstanceRecord.get("parentProcessInstanceKey").asLong()).isEqualTo(-1);
-            assertThat(processInstanceRecord.get("parentElementInstanceKey").asLong()).isEqualTo(-1);
-            assertThat(processInstanceRecord.get("flowScopeKey").asLong()).isEqualTo(-1);
-            assertThat(instanceAsJson.get("childCount").asInt()).isEqualTo(2);
-        }
-
-
-        @Test
-        public void shouldGetElementInstanceDetails() throws JsonProcessingException {
-            // given
-            final var processInstanceEvent = zeebeContentCreator.processInstanceEvent;
-            final var processInstanceKey = processInstanceEvent.getProcessInstanceKey();
-            final var elementInstanceKey = 2251799813685263L;
-
-            // when
-            final var processState = new InstanceState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
-            final var actualInstanceDetails = processState.getInstance(elementInstanceKey);
-
-            // then
-            assertThat(actualInstanceDetails).isNotNull();
-            final var instanceAsJson = OBJECT_MAPPER.readTree(actualInstanceDetails);
-            final var elementRecord = instanceAsJson.get("elementRecord");
-            assertThat(elementRecord.get("key").asLong()).isEqualTo(elementInstanceKey);
-            assertThat(elementRecord.get("state").asText()).isEqualTo(ProcessInstanceIntent.ELEMENT_ACTIVATED.toString());
-            final var processInstanceRecord = elementRecord.get("processInstanceRecord");
-            assertThat(processInstanceRecord.get("bpmnProcessId").asText()).isEqualTo(processInstanceEvent.getBpmnProcessId());
-            assertThat(processInstanceRecord.get("processDefinitionKey").asLong()).isEqualTo(processInstanceEvent.getProcessDefinitionKey());
-            assertThat(processInstanceRecord.get("version").asInt()).isEqualTo(processInstanceEvent.getVersion());
-            assertThat(processInstanceRecord.get("processInstanceKey").asLong()).isEqualTo(processInstanceEvent.getProcessInstanceKey());
-            assertThat(processInstanceRecord.get("elementId").asText()).isEqualTo("task");
-            assertThat(processInstanceRecord.get("bpmnElementType").asText()).isEqualTo(BpmnElementType.SERVICE_TASK.name());
-            assertThat(processInstanceRecord.get("parentProcessInstanceKey").asLong()).isEqualTo(-1);
-            assertThat(processInstanceRecord.get("parentElementInstanceKey").asLong()).isEqualTo(-1);
-            assertThat(processInstanceRecord.get("flowScopeKey").asLong()).isEqualTo(processInstanceKey);
-            assertThat(instanceAsJson.get("childCount").asInt()).isEqualTo(0);
-        }
-
-        @Test
-        public void shouldListElementInstanceDetails() throws JsonProcessingException {
-            // given
-            final var processInstanceEvent = zeebeContentCreator.processInstanceEvent;
-            final var processInstanceKey = processInstanceEvent.getProcessInstanceKey();
-            final var elementInstanceKey = 2251799813685263L;
-            final var processState = new InstanceState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
-            final var list = new ArrayList<String>();
-
-            // when
-            processState.listInstances((key, valueJson) -> list.add(valueJson));
-
-            // then
-            assertThat(list).hasSize(3);
-
-            JsonNode instanceAsJson = OBJECT_MAPPER.readTree(list.get(0));
-            JsonNode elementRecord = instanceAsJson.get("elementRecord");
-            assertThat(elementRecord.get("key").asLong()).isEqualTo(processInstanceKey);
-            assertThat(elementRecord.get("state").asText()).isEqualTo(ProcessInstanceIntent.ELEMENT_ACTIVATED.toString());
-            JsonNode processInstanceRecord = elementRecord.get("processInstanceRecord");
-            assertThat(processInstanceRecord.get("bpmnProcessId").asText()).isEqualTo(processInstanceEvent.getBpmnProcessId());
-            assertThat(processInstanceRecord.get("processDefinitionKey").asLong()).isEqualTo(processInstanceEvent.getProcessDefinitionKey());
-            assertThat(processInstanceRecord.get("version").asInt()).isEqualTo(processInstanceEvent.getVersion());
-            assertThat(processInstanceRecord.get("processInstanceKey").asLong()).isEqualTo(processInstanceEvent.getProcessInstanceKey());
-            assertThat(processInstanceRecord.get("elementId").asText()).isEqualTo("process");
-            assertThat(processInstanceRecord.get("bpmnElementType").asText()).isEqualTo(BpmnElementType.PROCESS.name());
-            assertThat(processInstanceRecord.get("parentProcessInstanceKey").asLong()).isEqualTo(-1);
-            assertThat(processInstanceRecord.get("parentElementInstanceKey").asLong()).isEqualTo(-1);
-            assertThat(processInstanceRecord.get("flowScopeKey").asLong()).isEqualTo(-1);
-            assertThat(instanceAsJson.get("childCount").asInt()).isEqualTo(2);
-
-            String elementInstanceJson = list.get(1);
-            assertThat(elementInstanceJson).isNotNull();
-            instanceAsJson = OBJECT_MAPPER.readTree(elementInstanceJson);
-            elementRecord = instanceAsJson.get("elementRecord");
-            assertThat(elementRecord.get("key").asLong()).isEqualTo(2251799813685261L);
-            assertThat(elementRecord.get("state").asText()).isEqualTo(ProcessInstanceIntent.ELEMENT_ACTIVATING.toString());
-            processInstanceRecord = elementRecord.get("processInstanceRecord");
-            assertThat(processInstanceRecord.get("bpmnProcessId").asText()).isEqualTo(processInstanceEvent.getBpmnProcessId());
-            assertThat(processInstanceRecord.get("processDefinitionKey").asLong()).isEqualTo(processInstanceEvent.getProcessDefinitionKey());
-            assertThat(processInstanceRecord.get("version").asInt()).isEqualTo(processInstanceEvent.getVersion());
-            assertThat(processInstanceRecord.get("processInstanceKey").asLong()).isEqualTo(processInstanceEvent.getProcessInstanceKey());
-            assertThat(processInstanceRecord.get("elementId").asText()).isEqualTo("incidentTask");
-            assertThat(processInstanceRecord.get("bpmnElementType").asText()).isEqualTo(BpmnElementType.SERVICE_TASK.name());
-            assertThat(processInstanceRecord.get("parentProcessInstanceKey").asLong()).isEqualTo(-1);
-            assertThat(processInstanceRecord.get("parentElementInstanceKey").asLong()).isEqualTo(-1);
-            assertThat(processInstanceRecord.get("flowScopeKey").asLong()).isEqualTo(processInstanceKey);
-            assertThat(instanceAsJson.get("childCount").asInt()).isEqualTo(0);
-
-            elementInstanceJson = list.get(2);
-            assertThat(elementInstanceJson).isNotNull();
-            instanceAsJson = OBJECT_MAPPER.readTree(elementInstanceJson);
-            elementRecord = instanceAsJson.get("elementRecord");
-            assertThat(elementRecord.get("key").asLong()).isEqualTo(elementInstanceKey);
-            assertThat(elementRecord.get("state").asText()).isEqualTo(ProcessInstanceIntent.ELEMENT_ACTIVATED.toString());
-            processInstanceRecord = elementRecord.get("processInstanceRecord");
-            assertThat(processInstanceRecord.get("bpmnProcessId").asText()).isEqualTo(processInstanceEvent.getBpmnProcessId());
-            assertThat(processInstanceRecord.get("processDefinitionKey").asLong()).isEqualTo(processInstanceEvent.getProcessDefinitionKey());
-            assertThat(processInstanceRecord.get("version").asInt()).isEqualTo(processInstanceEvent.getVersion());
-            assertThat(processInstanceRecord.get("processInstanceKey").asLong()).isEqualTo(processInstanceEvent.getProcessInstanceKey());
-            assertThat(processInstanceRecord.get("elementId").asText()).isEqualTo("task");
-            assertThat(processInstanceRecord.get("bpmnElementType").asText()).isEqualTo(BpmnElementType.SERVICE_TASK.name());
-            assertThat(processInstanceRecord.get("parentProcessInstanceKey").asLong()).isEqualTo(-1);
-            assertThat(processInstanceRecord.get("parentElementInstanceKey").asLong()).isEqualTo(-1);
-            assertThat(processInstanceRecord.get("flowScopeKey").asLong()).isEqualTo(processInstanceKey);
-            assertThat(instanceAsJson.get("childCount").asInt()).isEqualTo(0);
-        }
-
-        @Test
-        public void shouldNotFailOnNonExistingProcessInstance() {
-            // given
-
-            // when
-            final var processState = new InstanceState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
-            final var actualInstanceDetails = processState
-                    .getInstance(0xCAFE);
-
-            // then
-            assertThat(actualInstanceDetails).isEqualTo("{}");
-        }
-
-        @Test
-        public void shouldFindInstancesWithPredicate() {
-            // given
-            final var instanceState = new InstanceState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
-            final var processInstanceEvent = zeebeContentCreator.processInstanceEvent;
-            final var processInstanceKey = processInstanceEvent.getProcessInstanceKey();
-            final var processes = new HashMap<Long, String>();
-
-            // when
-            instanceState.listProcessInstances(processInstanceRecordDetails -> processInstanceRecordDetails.getBpmnProcessId().equals("process"),
-                    (key, valueJson) -> processes.put(new UnsafeBuffer(key).getLong(Long.BYTES, ZeebeDbConstants.ZB_DB_BYTE_ORDER), valueJson));
-
-            // then
-            assertThat(processes).containsKey(processInstanceKey);
-        }
-
-        @Test
-        public void shouldGetIncidentDetails() throws JsonProcessingException {
-            // given
-            final var runtimePath = ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1");
-            final var incidentKey = 2251799813685264L;
-            final var processInstanceEvent = zeebeContentCreator.processInstanceEvent;
-
-            // when
-            final var incidentState = new IncidentState(runtimePath);
-            final var incidentAsJson = incidentState.incidentDetails(incidentKey);
-
-            // then
-            assertThat(incidentAsJson).isNotNull();
-            final var incident = OBJECT_MAPPER.readTree(incidentAsJson).get("incidentRecord");
-            assertThat(incident.get("bpmnProcessId").asText()).isEqualTo("process");
-            assertThat(incident.get("processDefinitionKey").asLong()).isEqualTo(processInstanceEvent.getProcessDefinitionKey());
-            assertThat(incident.get("processInstanceKey").asLong()).isEqualTo(processInstanceEvent.getProcessInstanceKey());
-            assertThat(incident.get("elementInstanceKey").asLong()).isEqualTo(2251799813685261L);
-            assertThat(incident.get("elementId").asText()).isEqualTo("incidentTask");
-            assertThat(incident.get("errorMessage").asText()).isEqualTo("failed to evaluate expression '{bar:foo}': no variable found for name 'foo'");
-            assertThat(incident.get("errorType").asText()).isEqualTo(ErrorType.IO_MAPPING_ERROR.toString());
-            assertThat(incident.get("variableScopeKey").asLong()).isEqualTo(2251799813685261L);
-            assertThat(incident.get("jobKey").asLong()).isEqualTo(-1);
-        }
-
-        @Test
-        public void shouldListIncidentDetails() throws JsonProcessingException {
-            // given
-            final var runtimePath = ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1");
-            final var incidentKey = 2251799813685264L;
-            final var processInstanceEvent = zeebeContentCreator.processInstanceEvent;
-            final var list = new ArrayList<String>();
-
-            // when
-            final var incidentState = new IncidentState(runtimePath);
-            incidentState.listIncidents(list::add);
-
-            // then
-            assertThat(list).hasSize(1);
-            final var incidentAsJson = list.get(0);
-            assertThat(incidentAsJson).isNotNull();
-            final var incident = OBJECT_MAPPER.readTree(incidentAsJson);
-            assertThat(incident.get("key").asLong()).isEqualTo(incidentKey);
-            final var incidentRecord = incident.get("value").get("incidentRecord");
-            assertThat(incidentRecord.get("bpmnProcessId").asText()).isEqualTo("process");
-            assertThat(incidentRecord.get("processDefinitionKey").asLong()).isEqualTo(processInstanceEvent.getProcessDefinitionKey());
-            assertThat(incidentRecord.get("processInstanceKey").asLong()).isEqualTo(processInstanceEvent.getProcessInstanceKey());
-            assertThat(incidentRecord.get("elementInstanceKey").asLong()).isEqualTo(2251799813685261L);
-            assertThat(incidentRecord.get("elementId").asText()).isEqualTo("incidentTask");
-            assertThat(incidentRecord.get("errorMessage").asText()).isEqualTo("failed to evaluate expression '{bar:foo}': no variable found for name 'foo'");
-            assertThat(incidentRecord.get("errorType").asText()).isEqualTo(ErrorType.IO_MAPPING_ERROR.toString());
-            assertThat(incidentRecord.get("variableScopeKey").asLong()).isEqualTo(2251799813685261L);
-            assertThat(incidentRecord.get("jobKey").asLong()).isEqualTo(-1);
-            assertThat(incidentRecord.get("jobKey").asLong()).isEqualTo(-1);
-        }
+      final var maxPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getHighestPosition)
+              .max(Long::compareTo)
+              .orElseThrow();
+      assertThat(maxPosition).isEqualTo(62);
+      final var minPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getLowestPosition)
+              .min(Long::compareTo)
+              .orElseThrow();
+      assertThat(minPosition).isEqualTo(7);
     }
+
+    @Test
+    public void shouldNotSkipIfNegativeSeek() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+      logContentReader.seekToPosition(-1);
+
+      // when
+      logContentReader.forEachRemaining(records::add);
+
+      // then
+      verifyCompleteLog(records);
+    }
+
+    @Test
+    public void shouldNotSkipIfZeroSeek() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+      logContentReader.seekToPosition(0);
+
+      // when
+      logContentReader.forEachRemaining(records::add);
+
+      // then
+      verifyCompleteLog(records);
+    }
+
+    @Test
+    public void shouldSeekToEndOfLogIfNoExistingSeek() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+      logContentReader.seekToPosition(Long.MAX_VALUE);
+
+      // when
+      logContentReader.forEachRemaining(records::add);
+
+      // then
+      assertThat(records).hasSize(1);
+      assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(0);
+      assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(1);
+
+      final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
+      assertThat(maxIndex).isEqualTo(15);
+      final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
+      assertThat(minIndex).isEqualTo(15);
+
+      final var maxPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getHighestPosition)
+              .max(Long::compareTo)
+              .orElseThrow();
+      assertThat(maxPosition).isEqualTo(62);
+      final var minPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getLowestPosition)
+              .min(Long::compareTo)
+              .orElseThrow();
+      assertThat(minPosition).isEqualTo(62);
+    }
+
+    @Test
+    public void shouldLimitLogToPosition() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+      logContentReader.limitToPosition(30);
+
+      // when
+      logContentReader.forEachRemaining(records::add);
+
+      // then
+      assertThat(records).hasSize(5);
+      assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(1);
+      assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(4);
+
+      final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
+      assertThat(maxIndex).isEqualTo(5);
+      final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
+      assertThat(minIndex).isEqualTo(1);
+
+      final var maxPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getHighestPosition)
+              .max(Long::compareTo)
+              .orElseThrow();
+      assertThat(maxPosition).isEqualTo(34);
+      final var minPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getLowestPosition)
+              .min(Long::compareTo)
+              .orElseThrow();
+      assertThat(minPosition).isEqualTo(1);
+    }
+
+    @Test
+    public void shouldLimitViaPositionExclusive() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+      logContentReader.limitToPosition(1);
+
+      // when
+      logContentReader.forEachRemaining(records::add);
+
+      // then
+      assertThat(records).hasSize(1);
+      assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(1);
+      final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
+      assertThat(maxIndex).isEqualTo(1);
+      final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
+      assertThat(minIndex).isEqualTo(1);
+    }
+
+    @Test
+    public void shouldConvertRecordToColumn() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+      logContentReader.limitToPosition(2);
+
+      // when
+      logContentReader.forEachRemaining(records::add);
+
+      // then
+      assertThat(records).hasSize(2);
+      assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(1);
+      assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(1);
+
+      final var record = (ApplicationRecord) records.get(1);
+      // Index Term RecordType ValueType Intent Position SourceRecordPosition
+
+      final String columnString = record.asColumnString();
+      final String[] elements = columnString.trim().split(" ");
+      assertThat(elements).hasSize(9); // deployment record skips the last two columns
+      assertThat(elements).containsSubsequence("2", "1", "1", "-1");
+      // we skip timestamp since it is not reproducible
+      assertThat(elements).containsSubsequence("-1", "COMMAND", "DEPLOYMENT", "CREATE");
+    }
+
+    @Test
+    public void shouldWriteTableHeaderToStreamWhenNoDataFound() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var outputStream = new ByteArrayOutputStream();
+      logContentReader.limitToPosition(30);
+      logContentReader.seekToPosition(3);
+      logContentReader.filterForProcessInstance(2251799813685254L);
+      final var logWriter = new LogWriter(outputStream, logContentReader);
+
+      // when
+      logWriter.writeAsTable();
+
+      // then
+      assertThat(outputStream.toString().trim())
+          .isEqualTo(
+              "Index Term Position SourceRecordPosition Timestamp Key RecordType ValueType Intent ProcessInstanceKey BPMNElementType");
+    }
+
+    @Test
+    public void shouldWriteTableToStream() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+      final var outputStream = new ByteArrayOutputStream();
+      logContentReader.limitToPosition(600);
+      logContentReader.seekToPosition(6);
+      logContentReader.filterForProcessInstance(2251799813685252L);
+      final var logWriter = new LogWriter(outputStream, logContentReader);
+
+      // when
+      logWriter.writeAsTable();
+
+      // then
+      assertThat(outputStream.toString())
+          .startsWith(
+              "Index Term Position SourceRecordPosition Timestamp Key RecordType ValueType Intent ProcessInstanceKey BPMNElementType")
+          // EQUALs check is hard due to the timestamp
+          .contains("2251799813685253 EVENT VARIABLE CREATED 2251799813685252")
+          .contains("EVENT PROCESS_INSTANCE ELEMENT_ACTIVATING 2251799813685252 START_EVENT");
+    }
+
+    @Test
+    public void shouldSeekAndLimitLogWithPosition() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+      logContentReader.seekToPosition(5);
+      logContentReader.limitToPosition(30);
+
+      // when
+      logContentReader.forEachRemaining(records::add);
+
+      // then
+      assertThat(records).hasSize(3);
+      assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(0);
+      assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(3);
+
+      final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
+      assertThat(maxIndex).isEqualTo(5);
+      final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
+      assertThat(minIndex).isEqualTo(3);
+
+      final var maxPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getHighestPosition)
+              .max(Long::compareTo)
+              .orElseThrow();
+      assertThat(maxPosition).isEqualTo(34);
+      final var minPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getLowestPosition)
+              .min(Long::compareTo)
+              .orElseThrow();
+      assertThat(minPosition).isEqualTo(2);
+    }
+
+    @Test
+    public void shouldFilterWithProcessInstanceKey() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+      logContentReader.filterForProcessInstance(2251799813685252L);
+
+      // when
+      logContentReader.forEachRemaining(records::add);
+
+      // then
+      assertThat(records).hasSize(1);
+      assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(0);
+      assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(1);
+
+      final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
+      assertThat(maxIndex).isEqualTo(5);
+      final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
+      assertThat(minIndex).isEqualTo(5);
+
+      final var maxPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getHighestPosition)
+              .max(Long::compareTo)
+              .orElseThrow();
+      assertThat(maxPosition).isEqualTo(34);
+      final var minPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getLowestPosition)
+              .min(Long::compareTo)
+              .orElseThrow();
+      assertThat(minPosition).isEqualTo(7);
+    }
+
+    @Test
+    public void shouldFilterWithNoExistingProcessInstanceKey() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+      logContentReader.filterForProcessInstance(0xCAFE);
+
+      // when
+      logContentReader.forEachRemaining(records::add);
+
+      // then
+      assertThat(records).hasSize(0);
+    }
+
+    @Test
+    public void shouldFilterWithProcessInstanceKeyAndSetBeginAndEndOfLogPosition() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var records = new ArrayList<PersistedRecord>();
+      logContentReader.filterForProcessInstance(2251799813685252L);
+      logContentReader.seekToPosition(5);
+      logContentReader.limitToPosition(30);
+
+      // when
+      logContentReader.forEachRemaining(records::add);
+
+      // then
+      assertThat(records).hasSize(1);
+      assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(0);
+      assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count()).isEqualTo(1);
+
+      final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
+      assertThat(maxIndex).isEqualTo(5);
+      final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
+      assertThat(minIndex).isEqualTo(5);
+
+      final var maxPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getHighestPosition)
+              .max(Long::compareTo)
+              .orElseThrow();
+      assertThat(maxPosition).isEqualTo(34);
+      final var minPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getLowestPosition)
+              .min(Long::compareTo)
+              .orElseThrow();
+      assertThat(minPosition).isEqualTo(7);
+    }
+
+    private static void verifyCompleteLog(final List<PersistedRecord> records) {
+      assertThat(records).hasSize(15);
+      assertThat(records.stream().filter(RaftRecord.class::isInstance).count()).isEqualTo(1);
+      assertThat(records.stream().filter(ApplicationRecord.class::isInstance).count())
+          .isEqualTo(14);
+
+      final var maxIndex = records.stream().map(PersistedRecord::index).max(Long::compareTo).get();
+      assertThat(maxIndex).isEqualTo(15);
+      final var minIndex = records.stream().map(PersistedRecord::index).min(Long::compareTo).get();
+      assertThat(minIndex).isEqualTo(1);
+
+      final var maxPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getHighestPosition)
+              .max(Long::compareTo)
+              .orElseThrow();
+      assertThat(maxPosition).isEqualTo(62);
+      final var minPosition =
+          records.stream()
+              .filter(ApplicationRecord.class::isInstance)
+              .map(ApplicationRecord.class::cast)
+              .map(ApplicationRecord::getLowestPosition)
+              .min(Long::compareTo)
+              .orElseThrow();
+      assertThat(minPosition).isEqualTo(1);
+    }
+
+    @Test
+    public void shouldReturnLogContentAsDotFile() throws JsonProcessingException {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+      final var content = logContentReader.readAll();
+
+      // when
+      final var dotFileContent = content.asDotFile();
+
+      // then
+      assertThat(dotFileContent).startsWith("digraph log {").endsWith("}");
+    }
+
+    @Test
+    public void shouldContainNoDuplicatesInLogContent() throws JsonProcessingException {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logContentReader = new LogContentReader(logPath);
+
+      // when
+      final var content = logContentReader.readAll();
+
+      // then
+      // validate that records are not duplicated in LogContent
+      assertThat(content.getRecords())
+          .filteredOn(ApplicationRecord.class::isInstance)
+          .asInstanceOf(InstanceOfAssertFactories.list(ApplicationRecord.class))
+          .flatExtracting(ApplicationRecord::getEntries)
+          .extracting(io.zell.zdb.log.records.Record::getPosition)
+          .doesNotHaveDuplicates();
+    }
+
+    @Test
+    public void shouldSearchPositionInLog() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logSearch = new LogSearch(logPath);
+      final var position = 1;
+
+      // when
+      final var record = logSearch.searchPosition(position);
+
+      // then
+      assertThat(record).isNotNull();
+      assertThat(record.getPosition()).isEqualTo(position);
+    }
+
+    @Test
+    public void shouldReturnNullOnNegPosition() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logSearch = new LogSearch(logPath);
+
+      // when
+      final var record = logSearch.searchPosition(-1);
+
+      // then
+      assertThat(record).isNull();
+    }
+
+    @Test
+    public void shouldReturnNullOnToBigPosition() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logSearch = new LogSearch(logPath);
+
+      // when
+      final var record = logSearch.searchPosition(Long.MAX_VALUE);
+
+      // then
+      assertThat(record).isNull();
+    }
+
+    @Test
+    public void shouldSearchIndexInLog() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logSearch = new LogSearch(logPath);
+      final var index = 7;
+
+      // when
+      final var record = logSearch.searchIndex(index);
+
+      // then
+      assertThat(record).isNotNull();
+    }
+
+    @Test
+    public void shouldNotReturnDuplicatesWhenSearchForIndexInLog() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logSearch = new LogSearch(logPath);
+      final var index = 7;
+
+      // when
+      final var record = logSearch.searchIndex(index);
+
+      // then
+      // validate that records are not duplicated in LogContent
+      assertThat(record)
+          .asInstanceOf(InstanceOfAssertFactories.type(ApplicationRecord.class))
+          .extracting(ApplicationRecord::getEntries)
+          .asInstanceOf(InstanceOfAssertFactories.list(io.zell.zdb.log.records.Record.class))
+          .extracting(Record::getPosition)
+          .doesNotHaveDuplicates();
+    }
+
+    @Test
+    public void shouldReturnNullOnNegIndex() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logSearch = new LogSearch(logPath);
+
+      // when
+      final var logContent = logSearch.searchIndex(-1);
+
+      // then
+      assertThat(logContent).isNull();
+    }
+
+    @Test
+    public void shouldReturnNullOnToBigIndex() {
+      // given
+      final var logPath = ZeebePaths.Companion.getLogPath(TEMP_DIR, "1");
+      final var logSearch = new LogSearch(logPath);
+
+      // when
+      final var logContent = logSearch.searchIndex(Long.MAX_VALUE);
+
+      // then
+      assertThat(logContent).isNull();
+    }
+  }
+
+  @Nested
+  public class ZeebeStateTest {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ZeebeStateTest.class);
+    private static final File TEMP_DIR = TestUtils.newTmpFolder(ZeebeStateTest.class);
+    private static final ZeebeContentCreator zeebeContentCreator = new ZeebeContentCreator(PROCESS);
+
+    @Container
+    public static ZeebeContainer zeebeContainer =
+        TestUtils.createZeebeContainerBefore85(DOCKER_IMAGE, TEMP_DIR.getPath(), LOGGER)
+            .withEnv("ZEEBE_BROKER_PROCESSING_MAXCOMMANDSINBATCH", "100");
+
+    static {
+      TEMP_DIR.mkdirs();
+    }
+
+    @BeforeAll
+    public static void setup() {
+      zeebeContentCreator.createContent(zeebeContainer.getExternalGatewayAddress());
+    }
+
+    @AfterAll
+    public static void cleanup() throws Exception {
+      FileUtil.deleteFolderIfExists(TEMP_DIR.toPath());
+    }
+
+    @Test
+    public void shouldCreateStatsForCompleteState() {
+      // given
+      final var experimental =
+          new ZeebeDbReader(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
+
+      // when
+      final var cfMap = experimental.stateStatistics();
+
+      // then
+      assertThat(cfMap)
+          .containsEntry(ZbColumnFamilies.JOBS.name(), 1)
+          .containsEntry(ZbColumnFamilies.VARIABLES.name(), 3)
+          .containsEntry(ZbColumnFamilies.INCIDENTS.name(), 1)
+          .containsEntry(ZbColumnFamilies.ELEMENT_INSTANCE_KEY.name(), 3);
+    }
+
+    @Test
+    public void shouldVisitValuesAsJson() {
+      // given
+      final var experimental =
+          new ZeebeDbReader(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
+      final var incidentMap = new HashMap<String, String>();
+      final ZeebeDbReader.JsonValueVisitor jsonVisitor =
+          (cf, k, v) -> {
+            if (cf.equals(ZbColumnFamilies.INCIDENTS.name())) {
+              incidentMap.put(new String(k), v);
+            }
+          };
+
+      // when
+      experimental.visitDBWithJsonValues(jsonVisitor);
+
+      // then
+      assertThat(incidentMap)
+          .containsValue(
+              "{\"incidentRecord\":{\"errorType\":\"IO_MAPPING_ERROR\",\"errorMessage\":\"failed to evaluate expression '{bar:foo}': no variable found for name 'foo'\",\"bpmnProcessId\":\"process\",\"processDefinitionKey\":2251799813685249,\"processInstanceKey\":2251799813685252,\"elementId\":\"incidentTask\",\"elementInstanceKey\":2251799813685261,\"jobKey\":-1,\"variableScopeKey\":2251799813685261}}");
+    }
+
+    @Test
+    public void shouldListProcesses() {
+      // given
+      final var processState = new ProcessState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
+      final var processes = new HashMap<Long, String>();
+
+      // when
+      processState.listProcesses(
+          (key, valueJson) ->
+              processes.put(
+                  new UnsafeBuffer(key).getLong(Long.BYTES, ZeebeDbConstants.ZB_DB_BYTE_ORDER),
+                  valueJson));
+
+      // then
+      assertThat(processes).containsKey(2251799813685249L).containsKey(2251799813685250L);
+    }
+
+    @Test
+    public void shouldGetProcessDetails() throws JsonProcessingException {
+      // given
+      final var processes = new ArrayList<String>();
+      final Path runtimePath = ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1");
+      final var processState = new ProcessState(runtimePath);
+      final var returnedProcess = zeebeContentCreator.deploymentEvent.getProcesses().get(0);
+
+      // when
+      processState.processDetails(
+          returnedProcess.getProcessDefinitionKey(), (k, v) -> processes.add(v));
+
+      // then
+      assertThat(processes).hasSize(1);
+
+      final var objectMapper = new ObjectMapper();
+
+      final var jsonNode = objectMapper.readTree(processes.get(0));
+
+      assertThat(jsonNode.get("bpmnProcessId").asText())
+          .isEqualTo(returnedProcess.getBpmnProcessId());
+      assertThat(jsonNode.get("key").asLong()).isEqualTo(returnedProcess.getProcessDefinitionKey());
+      assertThat(jsonNode.get("resourceName").asText())
+          .isEqualTo(returnedProcess.getResourceName());
+      assertThat(jsonNode.get("version").asInt()).isEqualTo(returnedProcess.getVersion());
+      assertThat(jsonNode.get("resource").asText())
+          .isEqualTo(
+              Base64.getEncoder()
+                  .encodeToString(Bpmn.convertToString(PROCESS).getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    public void shouldNotFailOnNonExistingProcess() {
+      // given
+      final var processes = new ArrayList<String>();
+
+      // when
+      final var processState = new ProcessState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
+      processState.processDetails(0xCAFE, (k, v) -> processes.add(v));
+
+      // then
+      assertThat(processes).isEmpty();
+    }
+
+    @Test
+    public void shouldGetProcessInstanceDetails() throws JsonProcessingException {
+      // given
+      final var processInstanceEvent = zeebeContentCreator.processInstanceEvent;
+      final var processInstanceKey = processInstanceEvent.getProcessInstanceKey();
+
+      // when
+      final var processState =
+          new InstanceState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
+      final var actualInstanceDetails = processState.getInstance(processInstanceKey);
+
+      // then
+      assertThat(actualInstanceDetails).isNotNull();
+      final var instanceAsJson = OBJECT_MAPPER.readTree(actualInstanceDetails);
+      final var elementRecord = instanceAsJson.get("elementRecord");
+      assertThat(elementRecord.get("key").asLong()).isEqualTo(processInstanceKey);
+      assertThat(elementRecord.get("state").asText())
+          .isEqualTo(ProcessInstanceIntent.ELEMENT_ACTIVATED.toString());
+      final var processInstanceRecord = elementRecord.get("processInstanceRecord");
+      assertThat(processInstanceRecord.get("bpmnProcessId").asText())
+          .isEqualTo(processInstanceEvent.getBpmnProcessId());
+      assertThat(processInstanceRecord.get("processDefinitionKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessDefinitionKey());
+      assertThat(processInstanceRecord.get("version").asInt())
+          .isEqualTo(processInstanceEvent.getVersion());
+      assertThat(processInstanceRecord.get("processInstanceKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessInstanceKey());
+      assertThat(processInstanceRecord.get("elementId").asText()).isEqualTo("process");
+      assertThat(processInstanceRecord.get("bpmnElementType").asText())
+          .isEqualTo(BpmnElementType.PROCESS.name());
+      assertThat(processInstanceRecord.get("parentProcessInstanceKey").asLong()).isEqualTo(-1);
+      assertThat(processInstanceRecord.get("parentElementInstanceKey").asLong()).isEqualTo(-1);
+      assertThat(processInstanceRecord.get("flowScopeKey").asLong()).isEqualTo(-1);
+      assertThat(instanceAsJson.get("childCount").asInt()).isEqualTo(2);
+    }
+
+    @Test
+    public void shouldGetElementInstanceDetails() throws JsonProcessingException {
+      // given
+      final var processInstanceEvent = zeebeContentCreator.processInstanceEvent;
+      final var processInstanceKey = processInstanceEvent.getProcessInstanceKey();
+      final var elementInstanceKey = 2251799813685263L;
+
+      // when
+      final var processState =
+          new InstanceState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
+      final var actualInstanceDetails = processState.getInstance(elementInstanceKey);
+
+      // then
+      assertThat(actualInstanceDetails).isNotNull();
+      final var instanceAsJson = OBJECT_MAPPER.readTree(actualInstanceDetails);
+      final var elementRecord = instanceAsJson.get("elementRecord");
+      assertThat(elementRecord.get("key").asLong()).isEqualTo(elementInstanceKey);
+      assertThat(elementRecord.get("state").asText())
+          .isEqualTo(ProcessInstanceIntent.ELEMENT_ACTIVATED.toString());
+      final var processInstanceRecord = elementRecord.get("processInstanceRecord");
+      assertThat(processInstanceRecord.get("bpmnProcessId").asText())
+          .isEqualTo(processInstanceEvent.getBpmnProcessId());
+      assertThat(processInstanceRecord.get("processDefinitionKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessDefinitionKey());
+      assertThat(processInstanceRecord.get("version").asInt())
+          .isEqualTo(processInstanceEvent.getVersion());
+      assertThat(processInstanceRecord.get("processInstanceKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessInstanceKey());
+      assertThat(processInstanceRecord.get("elementId").asText()).isEqualTo("task");
+      assertThat(processInstanceRecord.get("bpmnElementType").asText())
+          .isEqualTo(BpmnElementType.SERVICE_TASK.name());
+      assertThat(processInstanceRecord.get("parentProcessInstanceKey").asLong()).isEqualTo(-1);
+      assertThat(processInstanceRecord.get("parentElementInstanceKey").asLong()).isEqualTo(-1);
+      assertThat(processInstanceRecord.get("flowScopeKey").asLong()).isEqualTo(processInstanceKey);
+      assertThat(instanceAsJson.get("childCount").asInt()).isEqualTo(0);
+    }
+
+    @Test
+    public void shouldListElementInstanceDetails() throws JsonProcessingException {
+      // given
+      final var processInstanceEvent = zeebeContentCreator.processInstanceEvent;
+      final var processInstanceKey = processInstanceEvent.getProcessInstanceKey();
+      final var elementInstanceKey = 2251799813685263L;
+      final var processState =
+          new InstanceState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
+      final var list = new ArrayList<String>();
+
+      // when
+      processState.listInstances((key, valueJson) -> list.add(valueJson));
+
+      // then
+      assertThat(list).hasSize(3);
+
+      JsonNode instanceAsJson = OBJECT_MAPPER.readTree(list.get(0));
+      JsonNode elementRecord = instanceAsJson.get("elementRecord");
+      assertThat(elementRecord.get("key").asLong()).isEqualTo(processInstanceKey);
+      assertThat(elementRecord.get("state").asText())
+          .isEqualTo(ProcessInstanceIntent.ELEMENT_ACTIVATED.toString());
+      JsonNode processInstanceRecord = elementRecord.get("processInstanceRecord");
+      assertThat(processInstanceRecord.get("bpmnProcessId").asText())
+          .isEqualTo(processInstanceEvent.getBpmnProcessId());
+      assertThat(processInstanceRecord.get("processDefinitionKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessDefinitionKey());
+      assertThat(processInstanceRecord.get("version").asInt())
+          .isEqualTo(processInstanceEvent.getVersion());
+      assertThat(processInstanceRecord.get("processInstanceKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessInstanceKey());
+      assertThat(processInstanceRecord.get("elementId").asText()).isEqualTo("process");
+      assertThat(processInstanceRecord.get("bpmnElementType").asText())
+          .isEqualTo(BpmnElementType.PROCESS.name());
+      assertThat(processInstanceRecord.get("parentProcessInstanceKey").asLong()).isEqualTo(-1);
+      assertThat(processInstanceRecord.get("parentElementInstanceKey").asLong()).isEqualTo(-1);
+      assertThat(processInstanceRecord.get("flowScopeKey").asLong()).isEqualTo(-1);
+      assertThat(instanceAsJson.get("childCount").asInt()).isEqualTo(2);
+
+      String elementInstanceJson = list.get(1);
+      assertThat(elementInstanceJson).isNotNull();
+      instanceAsJson = OBJECT_MAPPER.readTree(elementInstanceJson);
+      elementRecord = instanceAsJson.get("elementRecord");
+      assertThat(elementRecord.get("key").asLong()).isEqualTo(2251799813685261L);
+      assertThat(elementRecord.get("state").asText())
+          .isEqualTo(ProcessInstanceIntent.ELEMENT_ACTIVATING.toString());
+      processInstanceRecord = elementRecord.get("processInstanceRecord");
+      assertThat(processInstanceRecord.get("bpmnProcessId").asText())
+          .isEqualTo(processInstanceEvent.getBpmnProcessId());
+      assertThat(processInstanceRecord.get("processDefinitionKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessDefinitionKey());
+      assertThat(processInstanceRecord.get("version").asInt())
+          .isEqualTo(processInstanceEvent.getVersion());
+      assertThat(processInstanceRecord.get("processInstanceKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessInstanceKey());
+      assertThat(processInstanceRecord.get("elementId").asText()).isEqualTo("incidentTask");
+      assertThat(processInstanceRecord.get("bpmnElementType").asText())
+          .isEqualTo(BpmnElementType.SERVICE_TASK.name());
+      assertThat(processInstanceRecord.get("parentProcessInstanceKey").asLong()).isEqualTo(-1);
+      assertThat(processInstanceRecord.get("parentElementInstanceKey").asLong()).isEqualTo(-1);
+      assertThat(processInstanceRecord.get("flowScopeKey").asLong()).isEqualTo(processInstanceKey);
+      assertThat(instanceAsJson.get("childCount").asInt()).isEqualTo(0);
+
+      elementInstanceJson = list.get(2);
+      assertThat(elementInstanceJson).isNotNull();
+      instanceAsJson = OBJECT_MAPPER.readTree(elementInstanceJson);
+      elementRecord = instanceAsJson.get("elementRecord");
+      assertThat(elementRecord.get("key").asLong()).isEqualTo(elementInstanceKey);
+      assertThat(elementRecord.get("state").asText())
+          .isEqualTo(ProcessInstanceIntent.ELEMENT_ACTIVATED.toString());
+      processInstanceRecord = elementRecord.get("processInstanceRecord");
+      assertThat(processInstanceRecord.get("bpmnProcessId").asText())
+          .isEqualTo(processInstanceEvent.getBpmnProcessId());
+      assertThat(processInstanceRecord.get("processDefinitionKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessDefinitionKey());
+      assertThat(processInstanceRecord.get("version").asInt())
+          .isEqualTo(processInstanceEvent.getVersion());
+      assertThat(processInstanceRecord.get("processInstanceKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessInstanceKey());
+      assertThat(processInstanceRecord.get("elementId").asText()).isEqualTo("task");
+      assertThat(processInstanceRecord.get("bpmnElementType").asText())
+          .isEqualTo(BpmnElementType.SERVICE_TASK.name());
+      assertThat(processInstanceRecord.get("parentProcessInstanceKey").asLong()).isEqualTo(-1);
+      assertThat(processInstanceRecord.get("parentElementInstanceKey").asLong()).isEqualTo(-1);
+      assertThat(processInstanceRecord.get("flowScopeKey").asLong()).isEqualTo(processInstanceKey);
+      assertThat(instanceAsJson.get("childCount").asInt()).isEqualTo(0);
+    }
+
+    @Test
+    public void shouldNotFailOnNonExistingProcessInstance() {
+      // given
+
+      // when
+      final var processState =
+          new InstanceState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
+      final var actualInstanceDetails = processState.getInstance(0xCAFE);
+
+      // then
+      assertThat(actualInstanceDetails).isEqualTo("{}");
+    }
+
+    @Test
+    public void shouldFindInstancesWithPredicate() {
+      // given
+      final var instanceState =
+          new InstanceState(ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1"));
+      final var processInstanceEvent = zeebeContentCreator.processInstanceEvent;
+      final var processInstanceKey = processInstanceEvent.getProcessInstanceKey();
+      final var processes = new HashMap<Long, String>();
+
+      // when
+      instanceState.listProcessInstances(
+          processInstanceRecordDetails ->
+              processInstanceRecordDetails.getBpmnProcessId().equals("process"),
+          (key, valueJson) ->
+              processes.put(
+                  new UnsafeBuffer(key).getLong(Long.BYTES, ZeebeDbConstants.ZB_DB_BYTE_ORDER),
+                  valueJson));
+
+      // then
+      assertThat(processes).containsKey(processInstanceKey);
+    }
+
+    @Test
+    public void shouldGetIncidentDetails() throws JsonProcessingException {
+      // given
+      final var runtimePath = ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1");
+      final var incidentKey = 2251799813685264L;
+      final var processInstanceEvent = zeebeContentCreator.processInstanceEvent;
+
+      // when
+      final var incidentState = new IncidentState(runtimePath);
+      final var incidentAsJson = incidentState.incidentDetails(incidentKey);
+
+      // then
+      assertThat(incidentAsJson).isNotNull();
+      final var incident = OBJECT_MAPPER.readTree(incidentAsJson).get("incidentRecord");
+      assertThat(incident.get("bpmnProcessId").asText()).isEqualTo("process");
+      assertThat(incident.get("processDefinitionKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessDefinitionKey());
+      assertThat(incident.get("processInstanceKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessInstanceKey());
+      assertThat(incident.get("elementInstanceKey").asLong()).isEqualTo(2251799813685261L);
+      assertThat(incident.get("elementId").asText()).isEqualTo("incidentTask");
+      assertThat(incident.get("errorMessage").asText())
+          .isEqualTo("failed to evaluate expression '{bar:foo}': no variable found for name 'foo'");
+      assertThat(incident.get("errorType").asText())
+          .isEqualTo(ErrorType.IO_MAPPING_ERROR.toString());
+      assertThat(incident.get("variableScopeKey").asLong()).isEqualTo(2251799813685261L);
+      assertThat(incident.get("jobKey").asLong()).isEqualTo(-1);
+    }
+
+    @Test
+    public void shouldListIncidentDetails() throws JsonProcessingException {
+      // given
+      final var runtimePath = ZeebePaths.Companion.getRuntimePath(TEMP_DIR, "1");
+      final var incidentKey = 2251799813685264L;
+      final var processInstanceEvent = zeebeContentCreator.processInstanceEvent;
+      final var list = new ArrayList<String>();
+
+      // when
+      final var incidentState = new IncidentState(runtimePath);
+      incidentState.listIncidents(list::add);
+
+      // then
+      assertThat(list).hasSize(1);
+      final var incidentAsJson = list.get(0);
+      assertThat(incidentAsJson).isNotNull();
+      final var incident = OBJECT_MAPPER.readTree(incidentAsJson);
+      assertThat(incident.get("key").asLong()).isEqualTo(incidentKey);
+      final var incidentRecord = incident.get("value").get("incidentRecord");
+      assertThat(incidentRecord.get("bpmnProcessId").asText()).isEqualTo("process");
+      assertThat(incidentRecord.get("processDefinitionKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessDefinitionKey());
+      assertThat(incidentRecord.get("processInstanceKey").asLong())
+          .isEqualTo(processInstanceEvent.getProcessInstanceKey());
+      assertThat(incidentRecord.get("elementInstanceKey").asLong()).isEqualTo(2251799813685261L);
+      assertThat(incidentRecord.get("elementId").asText()).isEqualTo("incidentTask");
+      assertThat(incidentRecord.get("errorMessage").asText())
+          .isEqualTo("failed to evaluate expression '{bar:foo}': no variable found for name 'foo'");
+      assertThat(incidentRecord.get("errorType").asText())
+          .isEqualTo(ErrorType.IO_MAPPING_ERROR.toString());
+      assertThat(incidentRecord.get("variableScopeKey").asLong()).isEqualTo(2251799813685261L);
+      assertThat(incidentRecord.get("jobKey").asLong()).isEqualTo(-1);
+      assertThat(incidentRecord.get("jobKey").asLong()).isEqualTo(-1);
+    }
+  }
 }
