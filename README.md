@@ -1,7 +1,7 @@
 # Zeebe Debug and Inspection tool
 
-This repository contains a cli tool to inspect the internal state and log of a Zeebe partition. It is a Java (21) cli
-application and can be built via maven.
+This repository contains a CLI tool to inspect the internal state and log of a Zeebe partition. It is a Java (21) CLI
+application and can be built via Maven.
 It was kicked off during the Camunda Summer Hackdays in 2020 and has been maintained and developed since then.
 
 The following Zeebe versions are supported: [8.1,8.2,8.3,8.4,8.5,8.6,8.7,8.8]
@@ -26,22 +26,22 @@ The following Zeebe versions are supported: [8.1,8.2,8.3,8.4,8.5,8.6,8.7,8.8]
 
 ## What problem does it solve
 
-When Zeebe is broken there is currently no possibility to find out the last state of Zeebe.
-If there was no exporter configured, or they haven't exported for a while it gets even worse, since it is not clear what
+When Zeebe is broken, there is currently no possibility to find out the last state of Zeebe.
+If there was no exporter configured, or they haven't exported for a while, it gets even worse, since it is not clear what
 the internal engine state is.
 
-To shed some more light in the dark we build a tool called zdb - Zeebe Debugger. It should help you along the way during
+We built a tool called zdb - Zeebe Debugger to shed some more light in the dark. It should help you along the way during
 incidents and broken systems.
 
 ## Usage
 
 > **Note:**
-> To be on the safe side make sure to copy Zeebe data to a separate location, to not mess with a running Zeebe process
-> and mistakingly corrupt any data.
+> To be on the safe side, make sure to copy Zeebe data to a separate location, not to mess with a running Zeebe process
+> and mistakenly corrupt any data.
 
 ### Docker
 
-If you have copied data from Zeebe to your local machine you could run the following:
+If you have copied data from Zeebe to your local machine, you could run the following:
 
 ```
  docker run -v <path>/<partitionId>/:/<partitionId>/ ghcr.io/zelldon/zdb log print -p "/<partitionId>"
@@ -54,7 +54,7 @@ If you have copied data from Zeebe to your local machine you could run the follo
 > This approach doesn't work anymore with 8.3+ and non-root containers. See related
 > issue https://github.com/Zelldon/zdb/issues/332
 
-If have Zeebe installed in Kubernetes and want to investigate the Zeebe data you can run `zdb` as
+If you have Zeebe installed in Kubernetes and want to investigate the Zeebe data, you can run `zdb` as
 an [ephemeral container](https://kubernetes.io/docs/concepts/workloads/pods/ephemeral-containers/)
 
 ```
@@ -63,7 +63,7 @@ kubectl debug -it -c zdb --image=ghcr.io/zelldon/zdb:latest --attach=true --targ
 
 ### Local CLI
 
-Alternatively to the strategies above you can download the fat-jar and script and run that locally
+Alternatively to the strategies above, you can download the fat-jar and script and run that locally.
 
 ```bash
 cd /usr/bin
@@ -76,16 +76,16 @@ zdb --version
 
 ## How does it solve it
 
-Using `zdb` you can inspect the internal state or the partition log.
+Using `zdb`, you can inspect the internal state or the partition log.
 
 ### State Inspection
 
-Using `zdb` you can inspect the internal `runtime` data or a snapshot.
-It shows some information about the current state, incidents, processes, and so on from a single partition.
-To inspect the database you should provide the path to the `raft-partition/partitions/../runtime/` folder in a partition
+Using `zdb`, you can inspect the internal `runtime` data or a snapshot.
+It shows information about the current state, incidents, processes, and so on from a single partition.
+To inspect the database, you should provide the path to the `raft-partition/partitions/../runtime/` folder in a partition
 or one of the snapshot folders `raft-partition/partitions/../snapshot/<snapshot-folder>`
 
-You then can run several commands to inspect the given state.
+You can then run several commands to inspect the given state.
 
 #### Inspect Zeebe Partition Status
 
@@ -102,10 +102,10 @@ Furthermore, the complete state can be printed as json via the `list` sub-comman
 zdb state list --path=<pathToDatabase>
 ```
 
-This can be more fine-tuned and a specific column family can be given, such that only key-value pairs are printed to the
+This can be more fine-tuned, and a specific column family can be given, such that only key-value pairs are printed to the
 console.
 
-For example, to see all processes
+For example, to see all processes.
 
 ```
 $ zdb state --path=<pathToDatabase> list -cf PROCESS_CACHE
@@ -157,7 +157,7 @@ zdb process --path=<pathToDatabase> instances <ProcessKey>
 
 #### Inspect Instances
 
-You can inspect existing element instances and get details viewed of there state.
+You can inspect existing element instances and get details on their state.
 
 Print all information to a given element instance:
 
@@ -167,8 +167,8 @@ zdb instance --path=<pathToDatabase> entity <elementInstanceKey>
 
 #### Inspect state (generic)
 
-There is a new (experimental) feature to inspect the state on a generic way with the `state` subcommand. You can either
-print the complete state as json or specify a specific column family (used in Zeebe).
+There is a new (experimental) feature to inspect the state in a generic way with the `state` subcommand. You can either
+print the complete state as JSON or specify a specific column family (used in Zeebe).
 
 Example to see all processes
 
@@ -178,7 +178,7 @@ $ zdb state --path=<pathToDatabase> list -cf PROCESS_CACHE
 
 #### Inspect Banned Process Instances
 
-You can check if there are any processes stuck due to banning using the following commands.
+You can check if there are any processes stuck due to banning by using the following commands.
 
 List all banned process instances in this partition:
 
@@ -188,12 +188,12 @@ zdb state --path=<pathToDatabase> list -cf BANNED_INSTANCE
 
 ### Log Inspection
 
-You can also inspect the log stream using the command `zdb log` and his subcommands.
-To inspect the log you should provide the path to a specific partition `raft-partition/partitions/<partition-id>/`.
+You can also inspect the log stream using the command `zdb log` and its subcommands.
+To inspect the log, you should provide the path to a specific partition `raft-partition/partitions/<partition-id>/`.
 
 #### Inspect Log Status
 
-Shows the general information of a Zeebe partition log, e.g. how many indexes, max. entry size, avg. entry size etc.
+This shows the general information of a Zeebe partition log, e.g., the number of indexes, the max. Entry size, the average. Entry size, etc.
 
 ```sh
 zdb log status --path=<pathToPartition>
@@ -203,25 +203,25 @@ zdb log status --path=<pathToPartition>
 
 It is possible to inspect the log in more detail and search for a specific index **OR** position.
 
-To search for a record position use:
+To search for a record position, use:
 
 ```sh
 zdb log search --path=<pathToPartition> --position=<position>
 ```
 
-It will print all related information to the record, when it exists in the log.
+It will print all related information to the record when it exists in the log.
 
-To search for an index use:
+To search for an index, use:
 
 ```sh
 zdb log search --path=<pathToPartition> --index=<position>
 ```
 
-It will print a details to the specific index, when it exists in the log.
+It will print details to the specific index when it exists in the log.
 
 #### Print Log
 
-It is possible to print the complete log to standard out. This can be quite helpful if you want to track down some
+It is possible to print the complete log to standard out. This can be pretty helpful if you want to track down some
 records, which might have caused some issues.
 
 To print the log:
@@ -230,7 +230,7 @@ To print the log:
 zdb log print --path=<pathToPartition>
 ```
 
-Per default, the log is printed in JSON format.
+By default, the log is printed in JSON format.
 To pipe it to a file:
 
 ```sh
@@ -241,17 +241,17 @@ The `output.log` file will contain all records as JSON.
 
 ##### Limit
 
-You can limit the printed log via the options `--to` and `--from`.
+The options `--to` and `--from` allow you to limit the printed log.
 
-If you want to skip the first records or X positions you can use `zdb log print --path=<pathToPartition> --from X`
+If you want to skip the first records or X positions, you can use `zdb log print --path=<pathToPartition> --from X`
 whereas X must be a long.
 
-For defining a limit of the print (like until which position the log should be printed) you can use `--to` like this
+For defining a limit of the print (like until which position the log should be printed), you can use `--to` like this
 `zdb log print --path=<pathToPartition> --to X` whereas X must be a long.
 
 ##### Filter
 
-An interesting use case is to print only certain records, for example for only specific process instances.
+An interesting use case is printing only certain records, for example, for specific process instances.
 
 You can filter the printed log via: `--instanceKey`
 
@@ -261,7 +261,7 @@ You can filter the printed log via: `--instanceKey`
 
 ##### Format
 
-We support different formats to print the log, like json, table or dot. The json format is used per default. Can be set
+We support different formats for printing the log, like JSON, table, or dot. The JSON format is used by default. Can be set
 via `-f` or `--format`
 
 **Table**
@@ -270,7 +270,7 @@ via `-f` or `--format`
 zdb log print --format TABLE --path=<pathToPartition>
 ```
 
-The `table` format will print the complete log as space separated table. This can be consumed by other csv tools.
+The `table` format prints the complete log as a space-separated table, which can be consumed by other CSV tools.
 
 Example:
 
@@ -288,24 +288,24 @@ Index Term Position SourceRecordPosition Timestamp Key RecordType ValueType Inte
 zdb log print -f dot -p=<pathToPartition>
 ```
 
-The `dot` format will print the complete log as graph in [dot language](https://graphviz.org/doc/info/lang.html). This
+The `dot` format will print the complete log as a graph in [dot language](https://graphviz.org/doc/info/lang.html). This
 can be consumed by [graphviz](https://graphviz.org/doc/info/command.html) to generate a visual graph of the log.
 
-Generate dot file via:
+Generate a dot file via:
 `zdb log print -d -p <pathToPartition> > output.dot`
 
-Generate svg:
+Generate SVG:
 `dot -Tsvg -o test.svg test.dot`
 
 ![test](https://user-images.githubusercontent.com/2758593/156778874-1c1fb44a-e18c-4cac-b226-6052241ebdc8.svg)
 
 ### Raft Inspection
 
-Starting from `2.6.0` we support raft inspection via `zdb raft` command.
+Starting from `2.6.0`, we support raft inspection via the `zdb raft` command.
 
 #### Inspect Raft Status
 
-Shows the general information of a Zeebe partition raft, e.g. current term, voted for, commit index etc.
+Shows the general information of a Zeebe partition raft, e.g., current term, voted for, commit index, etc.
 
 ```sh
 zdb raft status --path=<pathToPartition>
