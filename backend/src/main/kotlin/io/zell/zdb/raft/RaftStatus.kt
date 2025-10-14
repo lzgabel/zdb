@@ -40,7 +40,7 @@ class RaftStatus(partitionPath: Path) {
     }
 
     fun detailsAsJson(): String {
-        return json.encodeToString(details());
+        return json.encodeToString(details())
     }
 
     @JvmRecord
