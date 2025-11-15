@@ -19,6 +19,7 @@ import io.zell.zdb.ZeebeDebugger.VersionProvider;
 import io.zell.zdb.journal.LogCommand;
 import io.zell.zdb.journal.RaftCommand;
 import io.zell.zdb.state.InstanceCommand;
+import io.zell.zdb.state.JobCommand;
 import io.zell.zdb.state.ProcessCommand;
 import io.zell.zdb.state.StateCommand;
 import java.util.concurrent.Callable;
@@ -40,7 +41,8 @@ import picocli.CommandLine.RunLast;
       IncidentCommand.class,
       LogCommand.class,
       RaftCommand.class,
-      StateCommand.class
+      StateCommand.class,
+      JobCommand.class,
     })
 public class ZeebeDebugger implements Callable<Integer> {
   private static CommandLine cli;
